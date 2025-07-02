@@ -1,0 +1,20 @@
+{
+  "flags": {
+    "custom-alias-enabled": {
+      "state": "ENABLED",
+      "variants": {
+        "on": true,
+        "off": false
+      },
+      "defaultVariant": "off"
+    },
+    "another-feature": {
+      "state": "DISABLED",
+      "variants": {
+        "on": true,
+        "off": false
+      },
+      "defaultVariant": "off"
+    }
+  }
+}
