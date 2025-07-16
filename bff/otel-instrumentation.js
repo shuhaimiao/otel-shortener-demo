@@ -1,7 +1,6 @@
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
-const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
-const { ExpressInstrumentation } = require('@opentelemetry/instrumentation-express');
+const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
 const { Resource } = require('@opentelemetry/resources');
 const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
 
@@ -14,14 +13,10 @@ const otlpExporter = new OTLPTraceExporter({
 
 const sdk = new NodeSDK({
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'bff-service',
+    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'bff',
   }),
   traceExporter: otlpExporter,
-  instrumentations: [
-    new HttpInstrumentation(),
-    new ExpressInstrumentation(),
-    // Add other instrumentations here (e.g., @opentelemetry/instrumentation-pg for PostgreSQL client)
-  ],
+  instrumentations: [getNodeAutoInstrumentations()],
   // You can also configure propagators if needed, though defaults are usually fine
   // textMapPropagator: new CompositePropagator({
   //   propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],
@@ -38,7 +33,7 @@ process.on('SIGTERM', () => {
 
 try {
   sdk.start();
-  console.log('OpenTelemetry SDK started for BFF...');
+  console.log('OpenTelemetry SDK for BFF started successfully.');
 } catch (error) {
   console.error('Error starting OpenTelemetry SDK for BFF:', error);
 }

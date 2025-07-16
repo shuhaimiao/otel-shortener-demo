@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -11,6 +12,12 @@ import java.util.concurrent.ThreadLocalRandom;
 @RestController
 @RequestMapping("/links")
 public class LinkController {
+
+    private final LinkRepository linkRepository;
+
+    public LinkController(LinkRepository linkRepository) {
+        this.linkRepository = linkRepository;
+    }
 
     private static final String ALPHANUMERIC_STRING = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final int SHORT_CODE_LENGTH = 6;
@@ -43,15 +50,16 @@ public class LinkController {
         System.out.println("URL API: Received request to create link for URL: " + request.url());
         System.out.println("URL API: User ID: " + userId + ", Tenant ID: " + tenantId);
 
-        // TODO: Implement actual logic:
-        // 1. Validate URL
-        // 2. Check feature flag 'custom-alias-enabled' (from flagd)
-        // 3. Generate short code (or use custom if flag enabled and provided)
-        // 4. Save to PostgreSQL database (links table)
-        // 5. Publish event to Kafka (topic: url-creations)
-
         String shortCode = generateShortCode();
-        System.out.println("URL API: Generated short code: " + shortCode);
+
+        Link newLink = new Link();
+        newLink.setShortCode(shortCode);
+        newLink.setLongUrl(request.url());
+        newLink.setUserId(userId); // Use the userId from the header
+        newLink.setCreatedAt(Instant.now());
+
+        linkRepository.save(newLink);
+        System.out.println("URL API: Saved new link with short code: " + shortCode);
 
         // Simulate response
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("shortCode", shortCode));

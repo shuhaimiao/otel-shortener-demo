@@ -228,7 +228,7 @@ services:
       retries: 10
 
   flagd:
-    image: openfeature/flagd:latest
+    image: ghcr.io/open-feature/flagd:latest
     ports:
       - "8013:8013" # gRPC port
     volumes:

@@ -1,6 +1,10 @@
 const express = require('express');
+const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Enable CORS for all routes
+app.use(cors());
 
 app.use(express.json());
 
@@ -42,35 +46,34 @@ app.post('/api/links', validateUserToken, async (req, res) => {
 
     console.log(`BFF: Calling URL API at http://${urlApiHostname}:${urlApiPort}/links with M2M token.`);
 
-    // Simulate call to URL API
-    // In a real app, use a library like 'axios' or 'node-fetch'
-    // const response = await fetch(`http://${urlApiHostname}:${urlApiPort}/links`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'Authorization': `Bearer ${m2mToken}`,
-    //     'X-User-ID': req.user.id,
-    //     'X-Tenant-ID': req.user.tenantId,
-    //   },
-    //   body: JSON.stringify({ url, userId: req.user.id, tenantId: req.user.tenantId })
-    // });
+    // Use the real fetch API to call the URL API
+    const response = await fetch(`http://${urlApiHostname}:${urlApiPort}/links`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${m2mToken}`,
+        'X-User-ID': req.user.id,
+        'X-Tenant-ID': req.user.tenantId,
+      },
+      body: JSON.stringify({ url, userId: req.user.id, tenantId: req.user.tenantId })
+    });
 
-    // if (!response.ok) {
-    //   const errorData = await response.text();
-    //   console.error('BFF: Error from URL API:', errorData);
-    //   return res.status(response.status).json({ error: `Error from URL API: ${errorData}` });
-    // }
-    // const data = await response.json();
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('BFF: Error from URL API:', errorData);
+      return res.status(response.status).json({ error: `Error from URL API: ${errorData}` });
+    }
+    const data = await response.json();
 
     // Simulate successful response from URL API
-    const simulatedApiResponse = { shortCode: Math.random().toString(36).substring(2, 8) };
-    console.log('BFF: Simulated response from URL API:', simulatedApiResponse);
+    // const simulatedApiResponse = { shortCode: Math.random().toString(36).substring(2, 8) };
+    // console.log('BFF: Simulated response from URL API:', simulatedApiResponse);
 
     const bffHostname = process.env.BFF_HOSTNAME || 'localhost';
     const redirectServicePort = process.env.REDIRECT_SERVICE_EXTERNAL_PORT || 8081; // Port for external access to redirector
 
     res.status(201).json({
-      shortUrl: `http://${bffHostname}:${redirectServicePort}/${simulatedApiResponse.shortCode}`
+      shortUrl: `http://${bffHostname}:${redirectServicePort}/${data.shortCode}`
     });
 
   } catch (error) {
