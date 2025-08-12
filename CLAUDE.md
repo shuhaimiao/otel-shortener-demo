@@ -124,3 +124,70 @@ SELECT * FROM clicks;
 - BFF is the authorization boundary - downstream services trust headers
 - Kafka messages include trace context in headers for async tracing
 - Feature flags via flagd can dynamically control behavior
+
+## Recent Implementation (Jan 2025) - E2E Traceability Enhancements
+
+### Current Branch: feat/initial-docker-compose-setup
+
+### Completed Enhancements (3 Sprints)
+
+#### Sprint 1: Core Infrastructure
+- **Frontend**: Added W3C trace propagation (traceparent header) in `frontend/instrumentation.ts`
+- **NGINX**: Edge layer at port 80 with trace preservation and rate limiting (`nginx/nginx.conf`)
+- **Redis**: Caching layer with traced operations (`bff/redis-client.js`)
+
+#### Sprint 2: Context Establishment
+- **BFF Context Middleware** (`bff/middleware/context.js`):
+  - Extracts JWT claims (placeholder validation returning mock claims)
+  - Caches context in Redis with TTL
+  - Creates standard headers: X-Tenant-ID, X-User-ID, X-User-Email, X-User-Groups, X-Service-Name, X-Transaction-Name, X-Correlation-ID
+  - Includes authorization scope checking
+- **Java MDC Integration**:
+  - `MdcContextFilter` for url-api and analytics-api
+  - `MdcContextWebFilter` for redirect-service (reactive)
+  - All services use SLF4J with MDC instead of System.out.println
+  - Logback configured with MDC pattern including traceId, userId, tenantId
+  - Centralized logging to `/logs/shared/all-services.log`
+
+#### Sprint 3: Advanced Features
+- **Scheduled Jobs** (`url-api/src/main/java/com/example/urlapi/ScheduledJobs.java`):
+  - Check expired links (every 30 seconds)
+  - Generate analytics report (every 60 seconds)
+  - Full trace propagation to Kafka via headers
+  - MDC context for job execution
+- **Exploratory Test Guide** (`docs/EXPLORATORY_TEST_GUIDE.md`):
+  - 10 comprehensive test scenarios
+  - Performance testing instructions
+  - Troubleshooting checklist
+
+### Key Design Decisions (from Desktop Review)
+1. **Edge Layer**: Simple NGINX (no Kong/API Gateway)
+2. **Context Establishment**: At BFF layer (not API Gateway)
+3. **Caching**: Redis standalone dockerized
+4. **Job Processing**: @Scheduled annotation (no Quartz)
+5. **Real-time**: No WebSocket for this demo
+6. **External Services**: No mocks needed
+7. **Observability**: 100% sampling, centralized logging to file
+
+### Current State
+- All OAuth is placeholder/mock (returns hardcoded claims)
+- Services accept any Bearer token (no real validation)
+- Focus is on trace propagation and context flow, not security
+- Everything runs in Docker Compose for easy demo
+
+### Testing the Implementation
+1. Start services: `docker-compose up -d`
+2. Access frontend: http://localhost:3000
+3. Create a short link and check:
+   - Jaeger UI (http://localhost:16686) for distributed trace
+   - Logs in `logs/shared/all-services.log` for MDC fields
+   - Redis for cached context: `docker exec -it otel-redis redis-cli`
+4. Wait for scheduled jobs to run (check url-api logs)
+
+### Next Steps if Resuming
+- Consider implementing real OAuth validation with Keycloak
+- Add Prometheus metrics collection
+- Implement actual link expiration logic
+- Add integration tests for trace verification
+- Consider adding distributed rate limiting with Redis
+- Implement circuit breakers for resilience
