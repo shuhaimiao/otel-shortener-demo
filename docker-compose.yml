@@ -1,6 +1,42 @@
 version: '3.8'
 
 services:
+  # Edge Layer - NGINX
+  nginx:
+    build: ./nginx
+    container_name: otel-nginx
+    ports:
+      - "80:80"
+    networks:
+      - otel-demo-network
+    depends_on:
+      - bff
+      - otel-collector
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Caching Layer - Redis
+  redis:
+    image: redis:7-alpine
+    container_name: otel-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - otel-demo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   frontend:
     build: ./frontend
     ports:
@@ -29,6 +65,8 @@ services:
       - KEYCLOAK_REALM=otel-demo
       - KEYCLOAK_BFF_CLIENT_ID=bff-client
       - KEYCLOAK_BFF_CLIENT_SECRET=aVerySecretBffClientSecret # Replace with a real secret
+      # Redis configuration
+      - REDIS_URL=redis://redis:6379
       # OTel Vars
       - OTEL_SERVICE_NAME=bff
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
@@ -40,6 +78,7 @@ services:
       - url-api
       - keycloak
       - otel-collector
+      - redis
 
   url-api:
     build: ./url-api
@@ -269,6 +308,8 @@ services:
 
 volumes:
   postgres_data:
+  redis-data:
+  shared-logs:
   # keycloak_data: # Uncomment if using Keycloak volume persistence
 
 networks:
