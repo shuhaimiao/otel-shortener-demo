@@ -84,6 +84,9 @@ services:
     build: ./url-api
     ports:
       - "8080:8080"
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/url-api:/logs
     environment:
       - SERVER_PORT=8080
       - SPRING_APPLICATION_NAME=url-api
@@ -119,6 +122,9 @@ services:
     build: ./redirect-service
     ports:
       - "8081:8081" # Exposed to the outside world
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/redirect-service:/logs
     environment:
       - SERVER_PORT=8081
       - SPRING_APPLICATION_NAME=redirect-service
@@ -146,6 +152,9 @@ services:
     build: ./analytics-api
     ports:
       - "8082:8082" # For actuator/health checks
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/analytics-api:/logs
     environment:
       - SERVER_PORT=8082
       - SPRING_APPLICATION_NAME=analytics-api

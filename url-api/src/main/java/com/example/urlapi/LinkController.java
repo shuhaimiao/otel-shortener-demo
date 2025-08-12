@@ -1,5 +1,7 @@
 package com.example.urlapi;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +14,8 @@ import java.util.concurrent.ThreadLocalRandom;
 @RestController
 @RequestMapping("/links")
 public class LinkController {
-
+    
+    private static final Logger logger = LoggerFactory.getLogger(LinkController.class);
     private final LinkRepository linkRepository;
 
     public LinkController(LinkRepository linkRepository) {
@@ -38,17 +41,17 @@ public class LinkController {
                                                           @RequestHeader(name = "Authorization") String authorization) {
         // Basic M2M token validation placeholder
         if (authorization == null || !authorization.startsWith("Bearer ")) {
-            System.out.println("URL API: Missing or invalid Authorization header.");
+            logger.warn("Missing or invalid Authorization header");
             // In a real app, this would be handled by Spring Security and a proper JWT validation library
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
         }
         String token = authorization.substring(7);
         // TODO: Add actual M2M token validation logic here (e.g., using Spring Security OAuth2 Resource Server)
-        System.out.println("URL API: Received M2M token (first 10 chars): " + (token.length() > 10 ? token.substring(0, 10) : token) + "...");
+        logger.debug("Received M2M token (first 10 chars): {}", 
+                    token.length() > 10 ? token.substring(0, 10) + "..." : token);
 
-
-        System.out.println("URL API: Received request to create link for URL: " + request.url());
-        System.out.println("URL API: User ID: " + userId + ", Tenant ID: " + tenantId);
+        // MDC context is already established by MdcContextFilter
+        logger.info("Creating short link for URL: {}", request.url());
 
         String shortCode = generateShortCode();
 
@@ -59,7 +62,7 @@ public class LinkController {
         newLink.setCreatedAt(Instant.now());
 
         linkRepository.save(newLink);
-        System.out.println("URL API: Saved new link with short code: " + shortCode);
+        logger.info("Successfully created short link with code: {}", shortCode);
 
         // Simulate response
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("shortCode", shortCode));

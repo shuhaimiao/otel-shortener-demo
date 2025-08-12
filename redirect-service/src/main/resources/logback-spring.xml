@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Define log pattern with MDC fields -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - TraceId=%X{traceId:-N/A} UserId=%X{userId:-anonymous} TenantId=%X{tenantId:-default} Transaction=%X{transaction:-N/A} CorrelationId=%X{correlationId:-N/A} - %msg%n"/>
+    
+    <!-- Console appender for local development -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- File appender for service-specific logging -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/redirect-service.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>/logs/redirect-service-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- Shared file appender for centralized logging (all services) -->
+    <appender name="SHARED_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/shared/all-services.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>/logs/shared/all-services-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- Logger for our application -->
+    <logger name="com.example.redirectservice" level="DEBUG"/>
+    
+    <!-- Logger for Spring Framework -->
+    <logger name="org.springframework" level="INFO"/>
+    
+    <!-- Logger for Reactor -->
+    <logger name="reactor" level="INFO"/>
+    
+    <!-- Logger for R2DBC -->
+    <logger name="io.r2dbc" level="INFO"/>
+    
+    <!-- Logger for OpenTelemetry -->
+    <logger name="io.opentelemetry" level="INFO"/>
+    
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="SHARED_FILE"/>
+    </root>
+</configuration>

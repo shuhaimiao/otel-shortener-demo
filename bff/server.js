@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { establishContext, checkAuthorization } = require('./middleware/context');
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -8,13 +9,21 @@ app.use(cors());
 
 app.use(express.json());
 
+// Apply context establishment middleware to all routes
+app.use(establishContext);
+
 // Placeholder for Keycloak user token validation
+// Now using context from establishContext middleware
 const validateUserToken = (req, res, next) => {
   console.log('BFF: Validating user token (placeholder)');
-  // In a real app, this would involve checking a JWT from Keycloak
-  // For now, we'll assume the token is valid
-  req.user = { id: 'test-user-id', tenantId: 'test-tenant-id', scopes: ['create:links'] }; // Mock user
-  next();
+  // Context is already established by establishContext middleware
+  // Just check if user context exists
+  if (req.userContext && req.userContext.user_id !== 'anonymous') {
+    console.log(`BFF: User ${req.userContext.user_id} validated for tenant ${req.userContext.tenant_id}`);
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
 };
 
 // Placeholder for M2M token acquisition
@@ -24,7 +33,7 @@ const getM2MToken = async () => {
   return 'mock-m2m-token'; // Simulate a token
 };
 
-app.post('/api/links', validateUserToken, async (req, res) => {
+app.post('/api/links', validateUserToken, checkAuthorization('create:links'), async (req, res) => {
   console.log('BFF: Received POST /api/links');
   const { url } = req.body;
 
@@ -32,12 +41,9 @@ app.post('/api/links', validateUserToken, async (req, res) => {
     return res.status(400).json({ error: 'URL is required' });
   }
 
-  // Authorization check (as per README)
-  if (!req.user || !req.user.scopes || !req.user.scopes.includes('create:links')) {
-    console.log('BFF: User not authorized. Missing required scope.');
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  console.log(`BFF: User ${req.user.id} is authorized for tenant ${req.user.tenantId}.`);
+  // Context already established and authorization checked by middleware
+  const userContext = req.userContext;
+  console.log(`BFF: Processing request for user ${userContext.user_id} in tenant ${userContext.tenant_id}`);
 
   try {
     const m2mToken = await getM2MToken();
@@ -46,16 +52,29 @@ app.post('/api/links', validateUserToken, async (req, res) => {
 
     console.log(`BFF: Calling URL API at http://${urlApiHostname}:${urlApiPort}/links with M2M token.`);
 
-    // Use the real fetch API to call the URL API
+    // Use the real fetch API to call the URL API with propagated context headers
     const response = await fetch(`http://${urlApiHostname}:${urlApiPort}/links`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${m2mToken}`,
-        'X-User-ID': req.user.id,
-        'X-Tenant-ID': req.user.tenantId,
+        // Propagate all context headers
+        'X-User-ID': req.headers['x-user-id'],
+        'X-Tenant-ID': req.headers['x-tenant-id'],
+        'X-User-Email': req.headers['x-user-email'],
+        'X-User-Groups': req.headers['x-user-groups'],
+        'X-Service-Name': req.headers['x-service-name'],
+        'X-Transaction-Name': req.headers['x-transaction-name'],
+        'X-Correlation-ID': req.headers['x-correlation-id'],
+        // Propagate trace context
+        'traceparent': req.headers['traceparent'],
+        'tracestate': req.headers['tracestate']
       },
-      body: JSON.stringify({ url, userId: req.user.id, tenantId: req.user.tenantId })
+      body: JSON.stringify({ 
+        url, 
+        userId: userContext.user_id, 
+        tenantId: userContext.tenant_id 
+      })
     });
 
     if (!response.ok) {
