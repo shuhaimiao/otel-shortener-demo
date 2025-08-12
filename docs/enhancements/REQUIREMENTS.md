@@ -8,10 +8,10 @@ This document outlines the requirements for enhancing the otel-shortener-demo to
 
 ### 2.1 Primary Objectives
 - **BR-01**: Demonstrate complete end-to-end traceability from edge to database
-- **BR-02**: Showcase enterprise patterns for distributed tracing in microservices
-- **BR-03**: Provide a reference implementation for OpenTelemetry adoption
+- **BR-02**: Showcase essential enterprise patterns for distributed tracing
+- **BR-03**: Provide a simplified reference implementation for OpenTelemetry adoption
 - **BR-04**: Maintain fully dockerized deployment for easy demonstration
-- **BR-05**: Align with Java enterprise technology stack
+- **BR-05**: Focus on trace context propagation over complex architecture
 
 ### 2.2 Success Criteria
 - 100% trace propagation across all service boundaries
@@ -52,35 +52,29 @@ This document outlines the requirements for enhancing the otel-shortener-demo to
   - 429 responses include rate limit headers
   - Trace shows when requests are throttled
 
-### 3.2 API Gateway Layer (Kong)
+### 3.2 Context Establishment Layer (BFF)
 
-#### FR-KONG-01: Request Routing Tracing
-- **Description**: All routing decisions must be traced
+#### FR-BFF-01: Token Claims Extraction
+- **Description**: Extract user context from authentication tokens
 - **Acceptance Criteria**:
-  - Route matching visible in spans
-  - Service selection recorded
-  - Path rewriting operations traced
+  - Token claims parsed (using placeholders for demo)
+  - User ID, Tenant ID extracted
+  - Context cached with token TTL
 
-#### FR-KONG-02: Authentication/Authorization
-- **Description**: Auth operations must be visible in traces
+#### FR-BFF-02: Standard Header Creation
+- **Description**: Establish standard context headers
 - **Acceptance Criteria**:
-  - API key validation spans
-  - OAuth token verification traced
-  - Authorization decisions recorded
+  - X-Tenant-ID header created
+  - X-User-ID header created
+  - X-Service-Name header added
+  - X-Transaction-Name for operations
 
-#### FR-KONG-03: Plugin Execution Chain
-- **Description**: Plugin pipeline must be fully traced
+#### FR-BFF-03: Context Propagation
+- **Description**: Propagate context to all downstream services
 - **Acceptance Criteria**:
-  - Each plugin creates a child span
-  - Plugin configuration visible in attributes
-  - Plugin errors properly traced
-
-#### FR-KONG-04: Circuit Breaking
-- **Description**: Circuit breaker state changes must be traced
-- **Acceptance Criteria**:
-  - Circuit state transitions create spans
-  - Failed requests due to open circuit are marked
-  - Half-open state testing is visible
+  - Headers included in all service calls
+  - Context added to trace spans
+  - MDC population supported
 
 ### 3.3 Caching Layer (Redis)
 
@@ -105,37 +99,23 @@ This document outlines the requirements for enhancing the otel-shortener-demo to
   - Failover events create spans
   - Sentinel decisions traced
 
-### 3.4 Background Job Processing (Java-based)
+### 3.4 Background Job Processing (Simplified)
 
 #### FR-JOB-01: Scheduled Job Execution
-- **Description**: Scheduled jobs must maintain trace context
+- **Description**: Single scheduled job with trace propagation
 - **Acceptance Criteria**:
-  - Each job execution creates a root span
-  - Job type, schedule, and duration recorded
-  - Cron expressions visible in attributes
+  - @Scheduled annotation creates root span
+  - Job execution traced
+  - Trace context propagated to Kafka
 
-#### FR-JOB-02: Async Job Queue
-- **Description**: Queued jobs must propagate trace context
+#### FR-JOB-02: Link Expiration Job
+- **Description**: Simple cleanup job for demonstration
 - **Acceptance Criteria**:
-  - Job submission includes trace context
-  - Queue wait time measured
-  - Job execution continues original trace
+  - Runs every 30 minutes
+  - Creates root trace span
+  - Sends events to Kafka with trace context
 
-#### FR-JOB-03: Job Failure Handling
-- **Description**: Job failures and retries must be traced
-- **Acceptance Criteria**:
-  - Failed attempts create error spans
-  - Retry count and backoff visible
-  - Dead letter queue operations traced
-
-#### FR-JOB-04: Batch Processing
-- **Description**: Batch job progress must be observable
-- **Acceptance Criteria**:
-  - Batch size and progress recorded
-  - Individual item processing traced
-  - Batch completion statistics visible
-
-### 3.5 WebSocket Support (Java-based)
+### 3.5 ~~WebSocket Support~~ (Removed per Desktop Review)
 
 #### FR-WS-01: Connection Lifecycle
 - **Description**: WebSocket connections must be traced
@@ -165,28 +145,11 @@ This document outlines the requirements for enhancing the otel-shortener-demo to
   - Target client selection traced
   - Delivery confirmation recorded
 
-### 3.6 External Service Integration
+### 3.6 ~~External Service Integration~~ (Documentation Only)
 
-#### FR-EXT-01: Payment Gateway Mock
-- **Description**: Simulated payment processing with tracing
-- **Acceptance Criteria**:
-  - Variable latency simulation (500-2500ms)
-  - 10% failure rate for testing
-  - Transaction ID correlation
-
-#### FR-EXT-02: Email Service Mock
-- **Description**: Email sending simulation with traces
-- **Acceptance Criteria**:
-  - Template rendering traced
-  - SMTP simulation with delays
-  - Delivery status tracking
-
-#### FR-EXT-03: Webhook Receiver
-- **Description**: Inbound webhook handling with tracing
-- **Acceptance Criteria**:
-  - Webhook validation spans
-  - Payload processing traced
-  - Async acknowledgment pattern
+- External service patterns will be documented
+- No mock services will be implemented
+- Focus on internal service-to-service tracing
 
 ### 3.7 Advanced Observability Features
 
@@ -290,27 +253,19 @@ This document outlines the requirements for enhancing the otel-shortener-demo to
 
 ## 5. Java-Specific Requirements
 
-### 5.1 Job Scheduler (Java Implementation)
+### 5.1 Job Scheduler (Simplified Java Implementation)
 
 #### JR-SCHED-01: Framework Selection
-- **Requirement**: Use Spring Boot with Quartz Scheduler
-- **Rationale**: Enterprise-grade, clusterable, persistent
+- **Requirement**: Use Spring Boot @Scheduled annotation
+- **Rationale**: Simple, built-in, sufficient for demo
 
-#### JR-SCHED-02: Job Types
+#### JR-SCHED-02: Job Implementation
 - **Required Jobs**:
-  - Link expiration cleanup (every 30 minutes)
-  - Analytics aggregation (hourly)
-  - Cache warming (every 15 minutes)
-  - Health check aggregation (every 5 minutes)
+  - Single link expiration cleanup job (every 30 minutes)
+  - Implemented in Analytics API service
+  - Focus on trace propagation to Kafka
 
-#### JR-SCHED-03: Job Management
-- **Requirements**:
-  - REST API for job management
-  - Job history and statistics
-  - Manual trigger capability
-  - Job dependency support
-
-### 5.2 WebSocket Server (Java Implementation)
+### 5.2 ~~WebSocket Server~~ (Not Implemented)
 
 #### JR-WS-01: Framework Selection
 - **Requirement**: Spring Boot with Spring WebSocket
@@ -438,9 +393,12 @@ Message spans must include:
 ### 9.1 Mandatory Criteria
 - [ ] All components deployed via docker-compose
 - [ ] Complete traces for all user journeys
-- [ ] Zero manual instrumentation in business logic
-- [ ] Traces visible in Jaeger within 1 second
-- [ ] All Java services using Spring Boot 3.2+
+- [ ] SPA initiates traceparent
+- [ ] BFF establishes context from tokens
+- [ ] Context propagated through all services
+- [ ] Scheduled job maintains trace context
+- [ ] Centralized logging with trace ID
+- [ ] Cache operations traced
 
 ### 9.2 Demo Readiness
 - [ ] 5 prepared demo scenarios
