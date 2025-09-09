@@ -1,9 +1,11 @@
 package com.example.urlapi;
 
+import com.example.urlapi.outbox.OutboxEventService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -17,9 +19,11 @@ public class LinkController {
     
     private static final Logger logger = LoggerFactory.getLogger(LinkController.class);
     private final LinkRepository linkRepository;
+    private final OutboxEventService outboxEventService;
 
-    public LinkController(LinkRepository linkRepository) {
+    public LinkController(LinkRepository linkRepository, OutboxEventService outboxEventService) {
         this.linkRepository = linkRepository;
+        this.outboxEventService = outboxEventService;
     }
 
     private static final String ALPHANUMERIC_STRING = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -35,6 +39,7 @@ public class LinkController {
     }
 
     @PostMapping
+    @Transactional
     public ResponseEntity<Map<String, String>> createLink(@RequestBody LinkCreationRequest request,
                                                           @RequestHeader(name = "X-User-ID", required = false) String userId,
                                                           @RequestHeader(name = "X-Tenant-ID", required = false) String tenantId,
@@ -55,14 +60,23 @@ public class LinkController {
 
         String shortCode = generateShortCode();
 
+        // Save link to database
         Link newLink = new Link();
         newLink.setShortCode(shortCode);
         newLink.setLongUrl(request.url());
         newLink.setUserId(userId); // Use the userId from the header
         newLink.setCreatedAt(Instant.now());
-
         linkRepository.save(newLink);
-        logger.info("Successfully created short link with code: {}", shortCode);
+        
+        // Create outbox event for CDC (critical business event)
+        // This will be atomically committed with the link creation
+        outboxEventService.createLinkCreatedEvent(
+            shortCode, 
+            request.url(), 
+            userId != null ? userId : "anonymous"
+        );
+        
+        logger.info("Successfully created short link with code: {} and outbox event", shortCode);
 
         // Simulate response
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("shortCode", shortCode));

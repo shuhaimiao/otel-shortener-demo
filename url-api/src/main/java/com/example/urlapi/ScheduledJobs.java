@@ -1,5 +1,6 @@
 package com.example.urlapi;
 
+import com.example.urlapi.outbox.OutboxEventService;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -18,6 +19,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -43,6 +45,9 @@ public class ScheduledJobs {
     private LinkRepository linkRepository;
     
     @Autowired(required = false)
+    private OutboxEventService outboxEventService;
+    
+    @Autowired(required = false)
     private OpenTelemetry openTelemetry;
     
     private Tracer tracer;
@@ -61,6 +66,7 @@ public class ScheduledJobs {
      * Runs every 30 seconds for demo purposes (in production, might be daily).
      */
     @Scheduled(fixedDelay = 30000, initialDelay = 10000)
+    @Transactional
     public void checkExpiredLinks() {
         // Start a new span for the scheduled job
         Span span = null;
@@ -109,9 +115,19 @@ public class ScheduledJobs {
                     span.setAttribute("links.expired.count", expiredCount);
                 }
                 
-                // Publish event to Kafka for each expired link
-                for (int i = 0; i < expiredCount; i++) {
-                    publishExpiredLinkEvent(jobId, "expired-link-" + i, span);
+                // Write expired link events to outbox (will be picked up by CDC)
+                // This maintains trace context automatically
+                if (outboxEventService != null) {
+                    for (int i = 0; i < expiredCount; i++) {
+                        String linkId = "expired-link-" + i;
+                        outboxEventService.createLinkExpiredEvent(linkId, "30 days old");
+                        logger.debug("Created outbox event for expired link: {}", linkId);
+                    }
+                } else {
+                    // Fallback to direct Kafka publishing if outbox not available
+                    for (int i = 0; i < expiredCount; i++) {
+                        publishExpiredLinkEvent(jobId, "expired-link-" + i, span);
+                    }
                 }
             } else {
                 logger.warn("LinkRepository not available, skipping expired link check");
