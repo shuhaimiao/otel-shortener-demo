@@ -1,8 +1,12 @@
+import OtelProvider from './otel-provider';
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <main>{children}</main>
+        <OtelProvider>
+          <main>{children}</main>
+        </OtelProvider>
       </body>
     </html>
   );

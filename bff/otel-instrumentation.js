@@ -16,7 +16,25 @@ const sdk = new NodeSDK({
     [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'bff',
   }),
   traceExporter: otlpExporter,
-  instrumentations: [getNodeAutoInstrumentations()],
+  instrumentations: [getNodeAutoInstrumentations({
+    // Disable fs instrumentation to reduce noise
+    '@opentelemetry/instrumentation-fs': {
+      enabled: false,
+    },
+    // Keep only the important instrumentations
+    '@opentelemetry/instrumentation-http': {
+      enabled: true,
+    },
+    '@opentelemetry/instrumentation-express': {
+      enabled: true,
+    },
+    '@opentelemetry/instrumentation-dns': {
+      enabled: false,
+    },
+    '@opentelemetry/instrumentation-net': {
+      enabled: false,
+    },
+  })],
   // You can also configure propagators if needed, though defaults are usually fine
   // textMapPropagator: new CompositePropagator({
   //   propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],

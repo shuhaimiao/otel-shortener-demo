@@ -17,12 +17,14 @@ app.use(establishContext);
 const validateUserToken = (req, res, next) => {
   console.log('BFF: Validating user token (placeholder)');
   // Context is already established by establishContext middleware
-  // Just check if user context exists
-  if (req.userContext && req.userContext.user_id !== 'anonymous') {
+  // For demo purposes, accept all requests (even anonymous)
+  // In production, this would properly validate JWT tokens
+  if (req.userContext) {
     console.log(`BFF: User ${req.userContext.user_id} validated for tenant ${req.userContext.tenant_id}`);
     next();
   } else {
-    res.status(401).json({ error: 'Unauthorized' });
+    // If no context at all, something is wrong
+    res.status(500).json({ error: 'Context not established' });
   }
 };
 

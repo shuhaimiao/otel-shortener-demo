@@ -175,8 +175,9 @@ public class ScheduledJobs {
             logger.info("Generated analytics report: {}", analytics);
             
             if (span != null) {
+                final Span finalSpan = span;
                 analytics.forEach((key, value) -> 
-                    span.setAttribute("analytics." + key, value.toString()));
+                    finalSpan.setAttribute("analytics." + key, value.toString()));
             }
             
             // Publish analytics event to Kafka

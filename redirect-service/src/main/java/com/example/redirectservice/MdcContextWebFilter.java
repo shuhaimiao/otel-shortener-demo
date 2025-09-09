@@ -60,6 +60,12 @@ public class MdcContextWebFilter implements WebFilter {
         contextMap.put("requestPath", exchange.getRequest().getPath().value());
         contextMap.put("service", "redirect-service");
         
+        // Create final copies for lambda usage
+        final String finalUserId = userId;
+        final String finalTenantId = tenantId;
+        final String finalTransactionName = transactionName;
+        final String finalTraceId = traceId;
+        
         // Log with MDC context
         return chain.filter(exchange)
             .contextWrite(Context.of("mdcContext", contextMap))
@@ -67,10 +73,10 @@ public class MdcContextWebFilter implements WebFilter {
                 // Set MDC for the subscription thread
                 contextMap.forEach(MDC::put);
                 logger.info("MDC context established - User: {}, Tenant: {}, Transaction: {}, TraceId: {}", 
-                           userId != null ? userId : "anonymous", 
-                           tenantId != null ? tenantId : "default",
-                           transactionName != null ? transactionName : exchange.getRequest().getMethod() + " " + exchange.getRequest().getPath().value(),
-                           traceId);
+                           finalUserId != null ? finalUserId : "anonymous", 
+                           finalTenantId != null ? finalTenantId : "default",
+                           finalTransactionName != null ? finalTransactionName : exchange.getRequest().getMethod() + " " + exchange.getRequest().getPath().value(),
+                           finalTraceId);
             })
             .doFinally(signalType -> {
                 // Clear MDC after processing

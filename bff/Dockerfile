@@ -18,5 +18,5 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 3001
 
-# Define the command to run the application
-CMD [ "node", "server.js" ]
+# Define the command to run the application with OpenTelemetry instrumentation
+CMD [ "node", "--require", "./otel-instrumentation.js", "server.js" ]

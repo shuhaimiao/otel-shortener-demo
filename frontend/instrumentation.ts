@@ -7,9 +7,14 @@ import { Resource } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
 
-export function register() {
-    if (typeof window !== 'undefined') {
-        const provider = new WebTracerProvider({
+export async function register() {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+        return;
+    }
+    
+    // Initialize OpenTelemetry for browser
+    const provider = new WebTracerProvider({
             resource: new Resource({
                 [SemanticResourceAttributes.SERVICE_NAME]: 'frontend-spa',
                 [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
@@ -52,6 +57,6 @@ export function register() {
                 }),
             ],
         });
-        console.log('OpenTelemetry tracing initialized for frontend-spa with W3C propagation');
-    }
+        
+    console.log('OpenTelemetry tracing initialized for frontend-spa with W3C propagation');
 } 
