@@ -1,0 +1,63 @@
+{
+  "name": "postgres-outbox-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "otel_user",
+    "database.password": "otel_password",
+    "database.dbname": "otel_shortener_db",
+    "database.server.name": "dbserver1",
+    "database.history.kafka.bootstrap.servers": "kafka:9092",
+    "database.history.kafka.topic": "schema-changes.otel",
+    
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "filtered",
+    "tombstones.on.delete": "false",
+    
+    "table.include.list": "public.outbox_events",
+    "column.exclude.list": "public.outbox_events.processed_at,public.outbox_events.status,public.outbox_events.retry_count,public.outbox_events.error_message",
+    
+    "transforms": "outbox,extractTrace,dropFields",
+    
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "id",
+    "transforms.outbox.table.field.event.key": "aggregate_id",
+    "transforms.outbox.table.field.event.type": "event_type",
+    "transforms.outbox.table.field.event.payload": "payload",
+    "transforms.outbox.table.field.event.payload.id": "aggregate_id",
+    "transforms.outbox.table.fields.additional.placement": "trace_id:header:trace_id,parent_span_id:header:parent_span_id,trace_flags:header:trace_flags,trace_state:header:trace_state,tenant_id:header:tenant_id,created_by:header:created_by",
+    "transforms.outbox.route.by.field": "event_type",
+    "transforms.outbox.route.topic.replacement": "${routedByValue}",
+    "transforms.outbox.route.topic.regex": "(?<routedByValue>.*)",
+    "transforms.outbox.table.expand.json.payload": "true",
+    
+    "transforms.extractTrace.type": "org.apache.kafka.connect.transforms.InsertHeader$Value",
+    "transforms.extractTrace.header": "traceparent",
+    "transforms.extractTrace.value.literal": "${trace_id:}${parent_span_id:}${trace_flags:01}",
+    
+    "transforms.dropFields.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.dropFields.blacklist": "trace_id,parent_span_id,trace_flags,trace_state",
+    
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    
+    "header.converter": "org.apache.kafka.connect.storage.SimpleHeaderConverter",
+    
+    "topic.prefix": "",
+    "topic.creation.default.replication.factor": 1,
+    "topic.creation.default.partitions": 3,
+    
+    "snapshot.mode": "initial",
+    "snapshot.include.collection.list": "public.outbox_events",
+    
+    "heartbeat.interval.ms": "10000",
+    "heartbeat.topics.prefix": "__heartbeat",
+    
+    "slot.name": "debezium_outbox_slot",
+    "publication.name": "debezium_outbox_pub"
+  }
+}
