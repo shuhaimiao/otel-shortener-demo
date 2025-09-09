@@ -1,0 +1,62 @@
+{
+  "name": "postgres-outbox-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "otel_user",
+    "database.password": "otel_password",
+    "database.dbname": "otel_shortener_db",
+    "database.server.name": "dbserver1",
+    "topic.prefix": "dbserver1",
+    
+    "schema.include.list": "public",
+    "table.include.list": "public.outbox_events",
+    
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "filtered",
+    "tombstones.on.delete": "false",
+    
+    "slot.name": "debezium_outbox_slot",
+    "publication.name": "debezium_outbox_pub",
+    
+    "transforms": "outbox,extractTraceId,extractSpanId,extractFlags,addTraceparent,route",
+    
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "id",
+    "transforms.outbox.table.field.event.key": "aggregate_id",
+    "transforms.outbox.table.field.event.type": "event_type",
+    "transforms.outbox.table.field.event.payload": "payload",
+    "transforms.outbox.table.expand.json.payload": "true",
+    "transforms.outbox.route.by.field": "event_type",
+    
+    "transforms.extractTraceId.type": "org.apache.kafka.connect.transforms.InsertHeader$Value",
+    "transforms.extractTraceId.header": "trace_id",
+    "transforms.extractTraceId.value.literal": "${trace_id}",
+    
+    "transforms.extractSpanId.type": "org.apache.kafka.connect.transforms.InsertHeader$Value",
+    "transforms.extractSpanId.header": "parent_span_id",
+    "transforms.extractSpanId.value.literal": "${parent_span_id}",
+    
+    "transforms.extractFlags.type": "org.apache.kafka.connect.transforms.InsertHeader$Value",
+    "transforms.extractFlags.header": "trace_flags",
+    "transforms.extractFlags.value.literal": "${trace_flags:01}",
+    
+    "transforms.addTraceparent.type": "org.apache.kafka.connect.transforms.InsertHeader$Value",
+    "transforms.addTraceparent.header": "traceparent",
+    "transforms.addTraceparent.value.literal": "00-${trace_id}-${parent_span_id}-${trace_flags:01}",
+    
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": "dbserver1.public.outbox_events",
+    "transforms.route.replacement": "link-events",
+    
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    
+    "snapshot.mode": "initial",
+    "heartbeat.interval.ms": "10000"
+  }
+}

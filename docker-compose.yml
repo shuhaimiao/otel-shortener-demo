@@ -187,9 +187,20 @@ services:
       - POSTGRES_DB=otel_shortener_db
       - POSTGRES_USER=otel_user
       - POSTGRES_PASSWORD=otel_password
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=4"
+      - "-c"
+      - "max_wal_senders=4"
+      - "-c"
+      - "wal_keep_size=256MB"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql # For schema creation
+      - ./scripts/001-init-schema.sql:/docker-entrypoint-initdb.d/001-init-schema.sql
+      - ./scripts/002-create-outbox-table.sql:/docker-entrypoint-initdb.d/002-create-outbox-table.sql
     networks:
       - otel-demo-network
     healthcheck:
@@ -239,6 +250,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  kafka-connect:
+    image: debezium/connect:2.5
+    container_name: otel-kafka-connect
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /kafka/connect
+      # Additional Java options for debugging
+      KAFKA_OPTS: "-Xms256m -Xmx512m"
+    volumes:
+      - ./debezium/custom-smt/target:/kafka/connect/custom-smt
+    networks:
+      - otel-demo-network
+    depends_on:
+      - kafka
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   keycloak:
     image: quay.io/keycloak/keycloak:24.0 # Use a recent version
