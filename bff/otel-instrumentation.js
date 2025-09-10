@@ -26,7 +26,7 @@ const sdk = new NodeSDK({
       enabled: true,
     },
     '@opentelemetry/instrumentation-express': {
-      enabled: true,
+      enabled: false, // Disabled for demo to reduce verbosity
     },
     '@opentelemetry/instrumentation-dns': {
       enabled: false,

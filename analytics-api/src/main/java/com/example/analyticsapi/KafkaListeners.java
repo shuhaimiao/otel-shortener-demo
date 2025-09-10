@@ -4,6 +4,8 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
@@ -49,8 +51,8 @@ public class KafkaListeners {
     void listenLinkEvents(ConsumerRecord<String, String> record) {
         Context extractedContext = extractTraceContext(record.headers());
         
-        Span span = null;
-        Scope scope = null;
+        Span consumerSpan = null;
+        Scope consumerScope = null;
         
         try {
             if (tracer != null) {
@@ -60,7 +62,7 @@ public class KafkaListeners {
                 
                 if (hasExtractedTrace) {
                     // Continue the trace from Kafka headers
-                    span = tracer.spanBuilder("kafka.consume.link-events")
+                    consumerSpan = tracer.spanBuilder("kafka.consume.link-events")
                         .setParent(extractedContext)
                         .setSpanKind(SpanKind.CONSUMER)
                         .setAttribute("service.name", "analytics-api")
@@ -68,10 +70,13 @@ public class KafkaListeners {
                         .setAttribute("messaging.destination", LINK_EVENTS_TOPIC)
                         .setAttribute("messaging.operation", "consume")
                         .setAttribute("messaging.message.id", record.key())
+                        .setAttribute("async.boundary", true)
+                        .setAttribute("cdc.source", "postgres-outbox")
+                        .setAttribute("cdc.connector", "debezium")
                         .startSpan();
                 } else {
                     // Start a new trace if no context found
-                    span = tracer.spanBuilder("kafka.consume.link-events")
+                    consumerSpan = tracer.spanBuilder("kafka.consume.link-events")
                         .setSpanKind(SpanKind.CONSUMER)
                         .setAttribute("service.name", "analytics-api")
                         .setAttribute("messaging.system", "kafka")
@@ -81,11 +86,12 @@ public class KafkaListeners {
                         .setAttribute("messaging.orphaned", true)
                         .startSpan();
                 }
-                scope = span.makeCurrent();
+                
+                consumerScope = consumerSpan.makeCurrent();
                 
                 // Set MDC with trace ID
-                if (span.getSpanContext().isValid()) {
-                    MDC.put("traceId", span.getSpanContext().getTraceId());
+                if (consumerSpan.getSpanContext().isValid()) {
+                    MDC.put("traceId", consumerSpan.getSpanContext().getTraceId());
                 }
             }
             
@@ -99,16 +105,16 @@ public class KafkaListeners {
             
         } catch (Exception e) {
             logger.error("Error processing link event", e);
-            if (span != null) {
-                span.recordException(e);
+            if (consumerSpan != null) {
+                consumerSpan.recordException(e);
             }
         } finally {
             MDC.clear();
-            if (scope != null) {
-                scope.close();
+            if (consumerScope != null) {
+                consumerScope.close();
             }
-            if (span != null) {
-                span.end();
+            if (consumerSpan != null) {
+                consumerSpan.end();
             }
         }
     }
@@ -117,8 +123,8 @@ public class KafkaListeners {
     void listenAnalyticsEvents(ConsumerRecord<String, String> record) {
         Context extractedContext = extractTraceContext(record.headers());
         
-        Span span = null;
-        Scope scope = null;
+        Span consumerSpan = null;
+        Scope consumerScope = null;
         
         try {
             if (tracer != null) {
@@ -128,7 +134,7 @@ public class KafkaListeners {
                 
                 if (hasExtractedTrace) {
                     // Continue the trace from Kafka headers
-                    span = tracer.spanBuilder("kafka.consume.analytics-events")
+                    consumerSpan = tracer.spanBuilder("kafka.consume.analytics-events")
                         .setParent(extractedContext)
                         .setSpanKind(SpanKind.CONSUMER)
                         .setAttribute("service.name", "analytics-api")
@@ -136,10 +142,12 @@ public class KafkaListeners {
                         .setAttribute("messaging.destination", ANALYTICS_EVENTS_TOPIC)
                         .setAttribute("messaging.operation", "consume")
                         .setAttribute("messaging.message.id", record.key())
+                        .setAttribute("async.boundary", true)
+                        .setAttribute("job.source", "url-api-scheduler")
                         .startSpan();
                 } else {
                     // Start a new trace if no context found
-                    span = tracer.spanBuilder("kafka.consume.analytics-events")
+                    consumerSpan = tracer.spanBuilder("kafka.consume.analytics-events")
                         .setSpanKind(SpanKind.CONSUMER)
                         .setAttribute("service.name", "analytics-api")
                         .setAttribute("messaging.system", "kafka")
@@ -149,11 +157,12 @@ public class KafkaListeners {
                         .setAttribute("messaging.orphaned", true)
                         .startSpan();
                 }
-                scope = span.makeCurrent();
+                
+                consumerScope = consumerSpan.makeCurrent();
                 
                 // Set MDC with trace ID
-                if (span.getSpanContext().isValid()) {
-                    MDC.put("traceId", span.getSpanContext().getTraceId());
+                if (consumerSpan.getSpanContext().isValid()) {
+                    MDC.put("traceId", consumerSpan.getSpanContext().getTraceId());
                 }
             }
             
@@ -167,16 +176,16 @@ public class KafkaListeners {
             
         } catch (Exception e) {
             logger.error("Error processing analytics event", e);
-            if (span != null) {
-                span.recordException(e);
+            if (consumerSpan != null) {
+                consumerSpan.recordException(e);
             }
         } finally {
             MDC.clear();
-            if (scope != null) {
-                scope.close();
+            if (consumerScope != null) {
+                consumerScope.close();
             }
-            if (span != null) {
-                span.end();
+            if (consumerSpan != null) {
+                consumerSpan.end();
             }
         }
     }

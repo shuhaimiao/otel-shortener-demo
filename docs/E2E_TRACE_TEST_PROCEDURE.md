@@ -1,187 +1,205 @@
 # End-to-End Trace Propagation Test Procedure
 
-This document outlines the complete procedure to test distributed tracing with OpenTelemetry and CDC (Change Data Capture) using the transactional outbox pattern.
+Comprehensive test scenarios to verify distributed tracing across all services and boundaries.
 
 ## Prerequisites
-- Docker and Docker Compose installed
-- Web browser with Developer Tools
-- Access to Jaeger UI (http://localhost:16686)
+- Docker Compose environment running
+- All services healthy (verify with `docker-compose ps`)
+- Jaeger UI accessible at http://localhost:16686
+- Browser with Developer Tools
 
-## Test Steps
+## Test Scenarios
 
-### 1. Clean Start
-```bash
-# Stop and remove all containers, volumes, and networks
-docker-compose down -v
+### Scenario 1: Complete Link Creation Flow ✅
 
-# Optional: Clean all data for a completely fresh start
-docker system prune -a --volumes
-```
+**Objective**: Verify trace propagation from frontend through CDC to analytics
 
-### 2. Build and Start All Services
-```bash
-# Build and start all services in detached mode
-docker-compose up --build -d
-```
-
-### 3. Wait for Services to Initialize
-Wait approximately 30-60 seconds for all services to fully initialize:
-- PostgreSQL database initialization
-- Kafka and Zookeeper startup
-- Kafka Connect initialization
-- **Automatic Debezium connector registration** (NEW - no manual step needed!)
-
-### 4. Verify Services Are Running
-```bash
-# Check all services are up
-docker-compose ps
-
-# Verify Debezium connector is registered (should show RUNNING status)
-curl -s http://localhost:8083/connectors/postgres-outbox-connector/status | grep state
-```
-
-Expected output should show:
-```json
-"state":"RUNNING"
-```
-
-### 5. Create a Test Link via Frontend
-
-1. Open browser and navigate to: http://localhost:3000
-2. Enter a URL to shorten (e.g., `https://example.com/trace-test`)
-3. Click "Shorten"
-4. Copy the shortened URL for later use
-
-### 6. Capture Trace ID from Browser
-
-1. Open Browser Developer Tools (F12)
-2. Go to Network tab
-3. Look for the POST request to `/api/links`
-4. In Response Headers, find the `traceparent` header
-5. Extract the trace ID (32 characters after "00-")
+#### Steps:
+1. **Create a link**
+   ```bash
+   # Open frontend
+   http://localhost:3000
    
-   Example traceparent: `00-29329c07cbc7cdfbe6c6dd2b5526fa50-4679a282ab8dea01-01`
-   
-   Trace ID: `29329c07cbc7cdfbe6c6dd2b5526fa50`
+   # Enter URL: https://test-e2e-trace.com
+   # Click "Shorten"
+   ```
 
-### 7. Verify Complete Trace in Jaeger
+2. **Capture trace ID**
+   - Open DevTools (F12) → Network tab
+   - Find POST to `/api/links`
+   - Copy `traceparent` from response headers
+   - Extract trace ID (32 chars after "00-")
 
-1. Open Jaeger UI: http://localhost:16686
-2. In the Search panel:
-   - Service: Select "frontend"
-   - Enter the Trace ID from step 6
-   - Click "Find Traces"
+3. **Verify in Jaeger**
+   - Open http://localhost:16686
+   - Search for trace ID
+   - Expected spans:
+     ```
+     frontend: HTTP POST
+     └── bff: POST /api/links
+         └── url-api: POST /links
+             ├── HikariDataSource.getConnection
+             ├── SELECT links (duplicate check)
+             ├── INSERT links
+             ├── INSERT outbox_events (with trace context)
+             └── analytics-api: kafka.consume.link-events
+     ```
 
-### 8. Expected Trace Structure
+4. **Verify trace context in database**
+   ```sql
+   docker exec -it otel-shortener-demo-postgres-1 psql -U otel_user -d otel_shortener_db -c \
+   "SELECT trace_id, parent_span_id, event_type FROM outbox_events ORDER BY created_at DESC LIMIT 1;"
+   ```
 
-You should see a complete distributed trace with the following spans:
+### Scenario 2: URL Redirect Flow ⚠️
 
-```
-frontend: HTTP POST /api/links
-├── bff: POST /api/links
-│   ├── middleware - query (Redis cache check)
-│   ├── middleware - expressInit
-│   ├── middleware - corsMiddleware
-│   ├── middleware - establishContext
-│   ├── middleware - jsonParser
-│   ├── request handler - /api/links
-│   └── POST (forwarding to url-api)
-│
-├── url-api: POST /api/links
-│   ├── HikariDataSource.getConnection
-│   ├── SELECT otel_shortener_db.links (check if exists)
-│   ├── INSERT otel_shortener_db.links (save link)
-│   └── INSERT otel_shortener_db.outbox_events (save event with trace context)
-│
-└── analytics-api: kafka.consume.link-events
-    └── Processing link event (with same trace ID!)
-```
+**Objective**: Test redirect service trace propagation
 
-### 9. Verify Trace Context in Logs
+#### Steps:
+1. **Use a shortened URL**
+   - Copy a short URL from Scenario 1
+   - Open in new browser tab
+   - Verify redirect occurs
 
-Check that the same trace ID appears in all service logs:
+2. **Find trace in Jaeger**
+   - Service: `redirect-service`
+   - Operation: `GET /{shortCode}`
+   - Expected spans:
+     ```
+     redirect-service: GET /{shortCode}
+     └── SELECT otel_shortener_db.links (R2DBC lookup)
+     ```
 
+> **Note**: Click event publishing to Kafka is TODO - trace ends at redirect
+
+### Scenario 3: Scheduled Jobs Tracing 🕐
+
+**Objective**: Verify scheduled jobs maintain trace context
+
+#### Steps:
+1. **Wait for scheduled execution**
+   - Link expiration check: Every 30 seconds
+   - Analytics report: Every 60 seconds
+
+2. **Check url-api logs**
+   ```bash
+   docker-compose logs url-api | grep -E "Checking expired links|Generating analytics"
+   ```
+
+3. **Find scheduled job traces in Jaeger**
+   - Service: `url-api`
+   - Operation: Contains "scheduled"
+   - Verify trace propagates to analytics-api
+
+### Scenario 4: Cache Hit/Miss Testing 💾
+
+**Objective**: Verify Redis cache integration in BFF
+
+#### Steps:
+1. **Create same link twice**
+   - First request: Cache miss
+   - Second request: Cache hit (context from Redis)
+
+2. **Check Redis**
+   ```bash
+   docker exec -it otel-redis redis-cli
+   KEYS context:*
+   TTL context:user:123:tenant:456
+   ```
+
+3. **Verify in traces**
+   - First trace shows context establishment
+   - Second trace shows faster response
+
+## Performance Testing 🚀
+
+### Load Test Scenario
 ```bash
-# Check url-api logs
-docker-compose logs url-api | grep "<trace-id>"
+# Generate 100 requests
+for i in {1..100}; do
+  curl -X POST http://localhost:3001/api/links \
+    -H "Content-Type: application/json" \
+    -d "{\"url\":\"https://example.com/test-$i\"}" &
+done
+wait
 
-# Check analytics-api logs  
-docker-compose logs analytics-api | grep "<trace-id>"
+# Check Jaeger for trace patterns
+# Look for slowest traces, errors, bottlenecks
 ```
 
-### 10. Test Click Tracking (Optional)
+## Verification Checklist ✓
 
-1. Use the shortened URL from step 5
-2. Open it in a browser
-3. Check Jaeger for the redirect trace
-4. Verify click event appears with trace context
+- [ ] Frontend generates valid W3C traceparent
+- [ ] BFF preserves and forwards trace context
+- [ ] URL API saves trace to outbox table
+- [ ] Debezium captures trace from outbox
+- [ ] Kafka headers contain trace context
+- [ ] Analytics API continues the trace
+- [ ] MDC logs show correlated trace IDs
+- [ ] Jaeger displays complete trace flow
+- [ ] Scheduled jobs create new traces
+- [ ] Redis caches context with TTL
 
-## Troubleshooting
+## Common Issues & Solutions
 
-### Connector Not Running
-If the Debezium connector is not in RUNNING state:
+### Issue: Broken Trace Chain
+**Symptom**: Analytics-api trace disconnected from main flow
+**Solution**: Verify outbox table has trace_id populated
+```sql
+SELECT trace_id, parent_span_id FROM outbox_events 
+WHERE trace_id IS NOT NULL LIMIT 5;
+```
 
+### Issue: Missing Kafka Headers
+**Symptom**: No trace context in Kafka messages
+**Solution**: Check Debezium connector configuration
 ```bash
-# Check connector status
-curl -s http://localhost:8083/connectors/postgres-outbox-connector/status
-
-# Check Kafka Connect logs
-docker-compose logs kafka-connect
-
-# Manually register connector if needed
-docker exec otel-connector-init /bin/sh /register-connector.sh
+curl http://localhost:8083/connectors/postgres-outbox-connector/config | jq .
 ```
 
-### Missing Traces in Analytics
-If analytics-api is not receiving events:
+### Issue: Slow Traces
+**Symptom**: Traces taking >1 second
+**Possible Causes**:
+- Cold start (first request)
+- Database connection pool exhausted
+- Kafka consumer lag
 
-```bash
-# Check if messages are in Kafka
-docker exec otel-shortener-demo-kafka-1 kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic link-events \
-  --from-beginning \
-  --max-messages 5 \
-  --property print.headers=true
+## Trace Context Flow Diagram
 
-# Check analytics-api logs
-docker-compose logs analytics-api | tail -50
+```
+[Frontend]
+    |
+    | traceparent: 00-{traceId}-{spanId}-01
+    ↓
+[BFF] → [Redis Cache]
+    |
+    | + X-User-ID, X-Tenant-ID
+    ↓
+[URL API]
+    |
+    |→ [PostgreSQL: links]
+    |→ [PostgreSQL: outbox_events]
+         |
+         | trace_id, parent_span_id columns
+         ↓
+    [Debezium CDC]
+         |
+         | Kafka headers: trace_id, parent_span_id
+         ↓
+    [Kafka Topic]
+         |
+         ↓
+[Analytics API]
+    |
+    | Reconstructs traceparent
+    ↓
+[Continued Trace]
 ```
 
-### Trace Context Not Propagating
-Verify trace headers are present in Kafka messages:
+## Success Metrics
 
-```bash
-# Look for trace_id, parent_span_id, trace_flags headers
-docker exec otel-shortener-demo-kafka-1 kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic link-events \
-  --property print.headers=true \
-  --property print.key=true \
-  --max-messages 1
-```
-
-## Architecture Overview
-
-The trace propagation flow:
-
-1. **Frontend** generates initial trace with OpenTelemetry
-2. **BFF** forwards trace via `traceparent` header  
-3. **URL API** saves trace context to outbox_events table
-4. **Debezium CDC** captures changes and preserves trace headers
-5. **Kafka** transports messages with trace context in headers
-6. **Analytics API** extracts trace context and continues the trace
-
-## Key Components
-
-- **Outbox Pattern**: Ensures transactional consistency between business operations and events
-- **W3C Trace Context**: Standard format for distributed tracing (`traceparent` header)
-- **Debezium EventRouter**: Transforms CDC events into domain events with trace propagation
-- **OpenTelemetry**: Provides automatic instrumentation and trace context propagation
-
-## Notes
-
-- The Debezium connector is automatically registered when docker-compose starts
-- Trace context is preserved even across asynchronous boundaries (CDC/Kafka)
-- All services use the same trace ID for end-to-end visibility
-- The outbox cleanup job runs every 5 minutes to remove processed events older than 24 hours
+✅ **Complete E2E trace** visible in Jaeger
+✅ **Trace context preserved** through async boundaries  
+✅ **MDC correlation** in all Java service logs
+✅ **Sub-second latency** for link creation
+✅ **100% trace continuity** (no orphaned spans)

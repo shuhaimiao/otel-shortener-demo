@@ -1,167 +1,237 @@
-# otel-shortener-demo
+# OpenTelemetry URL Shortener Demo
 
-A reference application for demonstrating end-to-end distributed tracing with OpenTelemetry. This project implements a URL shortener using a modern microservices architecture to showcase realistic tracing and authentication scenarios.
+A comprehensive microservices application demonstrating end-to-end distributed tracing with OpenTelemetry, showcasing trace propagation across synchronous HTTP calls and asynchronous CDC/Kafka boundaries.
 
-## 🎯 Core Objective
+## 🎯 Project Overview
 
-The primary goal of this project is to serve as a hands-on, educational tool for understanding and implementing distributed tracing. It demonstrates:
-- The **W3C Trace Context** specification via **OpenTelemetry**.
-- Tracing across synchronous (HTTP) and asynchronous (Kafka) boundaries.
-- **Server-to-server authentication** using the OAuth 2.0 Client Credentials grant.
-- **Centralized authorization** at an edge service (BFF).
-- OpenTelemetry context propagation in both **blocking (Servlet)** and **non-blocking (Reactive WebFlux)** Java frameworks.
-
-## 🛠️ Tech Stack
-
-- **Frontend (SPA):** Next.js / React
-- **Backend-for-Frontend (BFF):** Node.js (Express.js)
-- **Microservices (Java 21+):**
-    - **Spring Boot 3+ (MVC / Servlet):** For the `URL API`.
-    - **Spring Boot 3+ (WebFlux / Reactive):** For the `Redirect Service`.
-- **Messaging Queue:** Apache Kafka
-- **Database:** PostgreSQL (with `r2dbc-postgresql` for reactive access)
-- **Identity & Access Mgmt:** Keycloak (with both User and M2M authentication)
-- **Feature Flagging:** flagd
-- **Observability:** OpenTelemetry
-
-## 📡 Context & Header Strategy
-
-A standardized set of headers is used to propagate context through the system.
-
-| Header | Purpose | Owner / Generator |
-|---|---|---|
-| `traceparent` | **W3C Trace Context.** Carries the `trace-id`, `parent-id`, and sampling flags. | OpenTelemetry SDK |
-| `tracestate` | **W3C Trace Context.** Carries vendor-specific trace information. | OpenTelemetry SDK |
-| `Authorization` | **Service-level Authentication.** Carries the M2M Bearer token. | BFF |
-| `X-User-ID` | **User Identity Context.** Carries the verified `sub` claim of the end-user. | BFF |
-| `X-Tenant-ID` | **Tenant Context.** Carries the tenant identifier associated with the user. | BFF |
-
-**A Note on `X-Request-ID`:** This header is intentionally **not used**. In a modern OpenTelemetry-native application, the `trace-id` from the `traceparent` header serves as the definitive, unique identifier for an entire request chain, making a separate `X-Request-ID` header redundant.
+This project implements a URL shortener service to demonstrate:
+- **End-to-end distributed tracing** with W3C Trace Context specification
+- **Trace propagation** through synchronous (HTTP) and asynchronous (CDC/Kafka) boundaries
+- **Transactional Outbox Pattern** with Debezium CDC for reliable event publishing
+- **Context propagation** in both blocking (Servlet) and non-blocking (Reactive) Java frameworks
+- **Unified logging** with MDC (Mapped Diagnostic Context) integration
+- **Edge services** with NGINX and Redis caching
 
 ## 🏗️ Architecture
 
-### Component Responsibilities
+### System Components
 
-- **`Frontend (SPA)`**: The user's entry point. Handles login via Keycloak, provides a UI to submit a URL, and displays the result. It is responsible for initiating the trace.
-- **`BFF (Node.js)`**: The secure gateway and **Policy Enforcement Point**. It validates the end-user's JWT from Keycloak. **It then inspects the user's token for the necessary permissions (e.g., `scopes` or `roles`) to authorize the request.** If the user is authorized, the BFF authenticates *itself* with Keycloak (using Client Credentials) to obtain an M2M token before calling the `URL API`. If not, it rejects the request with a `403 Forbidden`.
-- **`URL API (Java/MVC)`**: The primary "write" service, built with **Spring Boot MVC (Servlet)**. It is protected and requires a valid M2M token from the BFF. **It operates on the principle that the BFF has already enforced user authorization,** and focuses solely on its business logic.
-- **`Redirect Service (Java/WebFlux)`**: A highly-optimized "read" service, built with **Spring Boot WebFlux (Reactive)** to handle high concurrency. It uses the reactive `R2DBC` driver to query Postgres non-blockingly. This service is public.
-- **`Analytics API (Java)`**: An asynchronous "worker" service. It consumes events from Kafka to process and store analytics data.
-- **`Keycloak`**: Manages authentication for both end-users (via Authorization Code Flow) and services (via Client Credentials Flow).
-- **`Postgres`**: The primary data store. Must be accessible via both traditional JDBC and reactive R2DBC drivers.
-- **`Kafka`**: The messaging backbone for a decoupling service.
-- **`flagd`**: A server for providing dynamic feature flags.
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Frontend  │────▶│    NGINX    │────▶│     BFF     │
+│  (Next.js)  │     │(Edge Layer) │     │ (Node.js)   │
+└─────────────┘     └─────────────┘     └──────┬──────┘
+                                                │
+                    ┌───────────────────────────┴───────────────────────────┐
+                    │                                                       │
+            ┌───────▼────────┐                                   ┌─────────▼──────────┐
+            │    URL API     │                                   │  Redirect Service  │
+            │ (Spring MVC)   │                                   │ (Spring WebFlux)   │
+            └───────┬────────┘                                   └─────────┬──────────┘
+                    │                                                       │
+        ┌───────────┴───────────┐                                         │
+        │                       │                                          │
+┌───────▼────────┐     ┌────────▼────────┐                              │
+│   PostgreSQL   │     │  Outbox Table   │                              │
+│    (Links)     │     │  (CDC Events)   │◀─────────────────────────────┘
+└────────────────┘     └────────┬────────┘
+                                │
+                        ┌───────▼────────┐
+                        │    Debezium    │
+                        │      CDC       │
+                        └───────┬────────┘
+                                │
+                        ┌───────▼────────┐
+                        │     Kafka      │
+                        └───────┬────────┘
+                                │
+                        ┌───────▼────────┐     ┌──────────────┐
+                        │ Analytics API  │────▶│   Jaeger     │
+                        │ (Spring Boot)  │     │ (Trace UI)   │
+                        └────────────────┘     └──────────────┘
+```
 
-## 🚀 User Flows & Tracing Verification
+### Service Descriptions
 
-The success of the demo is measured by visualizing two complete, end-to-end traces.
+| Service | Technology | Purpose | Trace Features |
+|---------|------------|---------|----------------|
+| **Frontend** | Next.js 14 | User interface | Initiates traces with W3C traceparent |
+| **NGINX** | NGINX 1.25 | Edge routing, rate limiting | Preserves trace context |
+| **BFF** | Node.js/Express | API gateway, auth handling | Context establishment, Redis caching |
+| **URL API** | Spring Boot MVC | Link creation, business logic | Outbox pattern, scheduled jobs |
+| **Redirect Service** | Spring WebFlux | High-performance redirects | Reactive R2DBC, async processing |
+| **Analytics API** | Spring Boot | Event processing | Kafka consumer, trace continuation |
+| **PostgreSQL** | PostgreSQL 16 | Primary datastore | Outbox table for CDC |
+| **Kafka** | Apache Kafka | Event streaming | Async messaging backbone |
+| **Debezium** | Debezium 2.5 | Change Data Capture | Trace context preservation |
+| **Redis** | Redis 7 | Caching layer | Context caching with TTL |
+| **Jaeger** | Jaeger | Trace visualization | Full trace analysis |
 
-### Trace 1: Creating a Link
+## 🚀 Quick Start
 
-This trace starts when the user clicks "Shrink It!" and should contain the following connected spans:
+### Prerequisites
+- Docker Desktop 4.0+
+- 8GB RAM minimum
+- Ports 80, 3000, 3001, 8080-8083, 16686 available
 
-1.  **`span: ui-create-link`** (from: React SPA)
-2.  **`span: bff-post-link`** (from: Node.js BFF)
-3.  **`span: url-api-create-link`** (from: URL API)
-4.  **`span: flagd-check-custom-alias`** (from: URL API, calling flagd)
-5.  **`span: db-insert-link`** (from: URL API, calling Postgres)
-6.  **`span: kafka-publish-created`** (from: URL API, publishing to Kafka)
-7.  **`span: analytics-api-process-created`** (from: Analytics API, consuming from Kafka, linked to the publishing span)
+### Start the Demo
 
-### Trace 2: Using a Link
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/otel-shortener-demo.git
+cd otel-shortener-demo
 
-This trace starts when a user accesses a short URL and should contain these connected spans:
+# Start all services
+docker-compose up -d
 
-1.  **`span: redirect-service-get-link`** (from: Redirect Service)
-2.  **`span: db-lookup-link`** (from: Redirect Service, calling Postgres via R2DBC)
-3.  **`span: kafka-publish-clicked`** (from: Redirect Service, publishing to Kafka)
-4.  **`span: analytics-api-process-clicked`** (from: Analytics API, consuming from Kafka, linked to the publishing span)
+# Wait for services to initialize (30-60 seconds)
+docker-compose ps
 
-## 🗃️ Data Models (PostgreSQL)
+# Verify Debezium connector is running
+curl -s http://localhost:8083/connectors/postgres-outbox-connector/status | grep state
+```
 
-#### `links` table
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| `short_code` | `VARCHAR(16)` | `PRIMARY KEY` | The unique, randomly generated short identifier. |
-| `long_url` | `TEXT` | `NOT NULL` | The original URL. |
-| `user_id` | `VARCHAR(255)` | `NOT NULL` | The Keycloak user ID of the creator. |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT NOW()` | Timestamp of creation. |
+### Access the Application
 
-#### `clicks` table
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | `PRIMARY KEY` | Unique identifier for the click event. |
-| `link_short_code`| `VARCHAR(16)` | `FK to links.short_code` | The link that was clicked. |
-| `clicked_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT NOW()` | Timestamp of the click. |
-| `user_agent` | `TEXT` | `NULL` | The User-Agent string of the clicker. |
+- **Frontend**: http://localhost:3000
+- **Jaeger UI**: http://localhost:16686
+- **Keycloak**: http://localhost:8880/auth (admin/admin)
 
-## 🔌 API Contracts (High-Level)
+## 📡 Distributed Tracing Features
 
-### BFF (`Node.js`)
-- **`POST /api/links`** (Protected by Keycloak User Token)
-    - **Request Body:** `{ "url": "https://opentelemetry.io/" }`
-    - **Success Response (201):** `{ "shortUrl": "http://localhost:8081/aBcDeF" }`
-    - **Action:** Validates user token and permissions, then calls `URL API` with an M2M token.
+### Trace Propagation Flow
 
-### URL API (`Java/MVC`)
-- **`POST /links`** (Internal Service, Protected by M2M Token)
-    - **Request Body:** `{ "url": "https://opentelemetry.io/", "userId": "user-sub-from-jwt", "tenantId": "tenant-from-jwt" }`
-    - **Success Response (201):** `{ "shortCode": "aBcDeF" }`
+1. **Frontend → BFF → URL API → Analytics API**
+   - Complete end-to-end trace through synchronous and asynchronous boundaries
+   - Trace context preserved through CDC/Kafka using transactional outbox pattern
 
-### Redirect Service (`Java/WebFlux`)
-- **`GET /{shortCode}`** (Public)
-    - **Example:** `GET /aBcDeF`
-    - **Success Response (302):** HTTP Redirect to the corresponding `long_url`.
-    - **Error Response (404):** If `shortCode` not found.
+2. **Context Headers**
+   - `traceparent`: W3C trace context (replaces traditional X-Request-ID)
+   - `tracestate`: Vendor-specific trace information
+   - `X-User-ID`, `X-Tenant-ID`: Business context
+   - `X-Correlation-ID`: Additional correlation tracking
 
-## 📨 Kafka Topics & Payloads
+### Key Implementation Details
 
-1.  **Topic: `url-creations`**
-    - **Payload:**
-      ```json
-      {
-        "shortCode": "aBcDeF",
-        "longUrl": "[https://opentelemetry.io/](https://opentelemetry.io/)",
-        "userId": "user-sub-from-jwt",
-        "tenantId": "tenant-from-jwt",
-        "createdAt": "2025-07-02T11:07:15Z"
-      }
-      ```
+#### Transactional Outbox Pattern
+- Events written to `outbox_events` table with trace context
+- Debezium captures changes and publishes to Kafka with trace headers
+- Analytics service extracts trace context and continues the trace
 
-2.  **Topic: `url-clicks`**
-    - **Payload:**
-      ```json
-      {
-        "shortCode": "aBcDeF",
-        "clickedAt": "2025-07-02T11:08:00Z",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...",
-        "ipAddress": "192.168.1.10"
-      }
-      ```
+#### MDC Integration
+All Java services use SLF4J with MDC for structured logging:
+```java
+MDC.put("traceId", span.getSpanContext().getTraceId());
+MDC.put("userId", userContext.getUserId());
+MDC.put("tenantId", userContext.getTenantId());
+```
 
-## 🚩 Feature Flag (flagd)
+#### Scheduled Jobs with Tracing
+URL API includes scheduled jobs that maintain trace context:
+- Link expiration checking (every 30 seconds)
+- Analytics report generation (every 60 seconds)
 
-A boolean feature flag will be used to demonstrate dynamic configuration.
+## 🧪 Testing the End-to-End Trace
 
-- **Flag Key:** `custom-alias-enabled`
-- **Consumer:** The `URL API` will query this flag.
-- **Logic:** If `true`, the API could theoretically allow users to specify a custom shortcode instead of a random one. For the demo, it can simply add a log entry or a tag to the trace indicating the flag was checked and its value.
+### Create a Short Link
 
-## 📚 References & Further Reading
+1. Open http://localhost:3000
+2. Enter a URL to shorten
+3. Click "Shorten"
+4. Copy the trace ID from browser DevTools (Network tab → Response Headers → `traceparent`)
 
-This project is built upon the concepts and specifications from the following official documentation. These links are excellent resources for diving deeper into the technologies used.
+### View the Complete Trace
 
-- **[W3C Trace Context Specification](https://www.w3.org/TR/trace-context/)**: The official web standard for propagating distributed trace context.
-- **[OpenTelemetry for Java](https://opentelemetry.io/docs/languages/java/)**: The main documentation for using OpenTelemetry in Java.
-- **[OpenTelemetry Spring Boot Starter](https://opentelemetry.io/docs/zero-code/java/spring-boot-starter/)**: Specific guide for the "zero-code" starter we'll use in our Java services.
-- **[OpenTelemetry for JavaScript](https://opentelemetry.io/docs/languages/js/)**: The main documentation for instrumenting the Node.js BFF and the Next.js frontend.
+1. Open Jaeger UI: http://localhost:16686
+2. Search for the trace ID
+3. Verify the complete trace flow:
+   ```
+   frontend: HTTP POST
+   └── bff: POST /api/links
+       └── url-api: POST /links
+           ├── HikariDataSource.getConnection
+           ├── INSERT otel_shortener_db.links
+           ├── INSERT otel_shortener_db.outbox_events
+           └── analytics-api: kafka.consume.link-events (async continuation)
+   ```
 
-## ✨ Collaborating with an AI Assistant
+## 🔧 Configuration
 
-This document provides the complete requirements for the `otel-shortener-demo`. When working with a coding assistant (like Google Gemini), use this file as the primary source of truth. Pay special attention to the advanced requirements:
+### Environment Variables
 
-1.  **Dual Auth in Keycloak:** Configure one client for the Frontend (public, with standard flow) and another for the BFF (confidential, for client credentials). The `URL API` must be configured as a resource server that validates tokens intended for the BFF client.
-2.  **Authorization at the Edge:** Implement the authorization logic within the BFF. The BFF should reject requests with a `403 Forbidden` if the user's JWT lacks the required scopes. Downstream services should not contain user authorization logic.
-3.  **BFF Logic:** The BFF must contain the logic to manage its M2M token, including caching and renewal.
-4.  **Servlet vs. WebFlux:** Ensure the `URL API` is built using `spring-boot-starter-web` and the `Redirect Service` is built using `spring-boot-starter-webflux`. This will require different dependency sets and coding styles.
-5.  **Reactive Database:** The `Redirect Service` must use `spring-boot-starter-data-r2dbc` and the `r2dbc-postgresql` driver for its database interactions.
+Key configuration options in `docker-compose.yml`:
+
+```yaml
+# OpenTelemetry Configuration
+OTEL_SERVICE_NAME: Service name for tracing
+OTEL_EXPORTER_OTLP_ENDPOINT: Collector endpoint
+OTEL_PROPAGATORS: tracecontext,baggage
+
+# Context Headers
+X-Service-Name: Service identification
+X-Transaction-Name: Transaction type
+X-Correlation-ID: Request correlation
+```
+
+### Logging Configuration
+
+Centralized logging to `/logs/shared/all-services.log` with MDC pattern:
+```xml
+<pattern>%d{ISO8601} [%thread] %-5level %logger{36} - traceId=%X{traceId} userId=%X{userId} tenantId=%X{tenantId} - %msg%n</pattern>
+```
+
+## 📊 Observability Stack
+
+- **OpenTelemetry Collector**: Receives and exports traces
+- **Jaeger**: Distributed trace visualization
+- **Centralized Logging**: All services log to shared file with trace correlation
+- **Redis Monitoring**: Context cache hit/miss tracking
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+otel-shortener-demo/
+├── frontend/                 # Next.js frontend application
+├── nginx/                    # NGINX configuration
+├── bff/                      # Node.js BFF service
+├── url-api/                  # Spring Boot MVC service
+├── redirect-service/         # Spring WebFlux reactive service
+├── analytics-api/            # Kafka consumer service
+├── scripts/                  # Database initialization
+├── debezium/                 # CDC configuration
+├── otel-collector-config.yml # OpenTelemetry configuration
+└── docker-compose.yml        # Service orchestration
+```
+
+### Adding New Services
+
+1. Implement OpenTelemetry instrumentation
+2. Add MDC context filter (for Java services)
+3. Configure trace propagation headers
+4. Update docker-compose.yml with OTEL environment variables
+
+## 📚 Documentation
+
+- [Architecture Details](docs/ARCHITECTURE.md)
+- [E2E Trace Test Procedure](docs/E2E_TRACE_TEST_PROCEDURE.md)
+- [Context Propagation Guide](docs/CONTEXT_PROPAGATION.md)
+- [Outbox Pattern Implementation](docs/SPEC-OUTBOX-DEBEZIUM.md)
+
+## 🤝 Contributing
+
+This is a demonstration project for learning distributed tracing concepts. Contributions that enhance the educational value are welcome!
+
+## 📝 License
+
+MIT License - See LICENSE file for details
+
+## 🙏 Acknowledgments
+
+Built with:
+- [OpenTelemetry](https://opentelemetry.io/)
+- [Spring Boot](https://spring.io/projects/spring-boot)
+- [Debezium](https://debezium.io/)
+- [Apache Kafka](https://kafka.apache.org/)
+- [Next.js](https://nextjs.org/)
