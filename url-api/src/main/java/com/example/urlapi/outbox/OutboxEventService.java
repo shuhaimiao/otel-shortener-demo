@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -61,13 +62,37 @@ public class OutboxEventService {
                 spanContext.getTraceId(), spanContext.getSpanId());
         }
         
-        // Capture MDC context
+        // Capture CORE context from MDC as JSON (as per desktop review)
+        Map<String, String> contextMap = new HashMap<>();
+        
+        // Extract CORE context fields
+        String requestId = MDC.get("requestId");
         String userId = MDC.get("userId");
+        String tenantId = MDC.get("tenantId");
+        String originService = MDC.get("originService");
+        String transactionType = MDC.get("transactionType");
+        
+        if (requestId != null) contextMap.put("request_id", requestId);
+        if (userId != null) contextMap.put("user_id", userId);
+        if (tenantId != null) contextMap.put("tenant_id", tenantId);
+        if (originService != null) contextMap.put("service_name", originService);
+        if (transactionType != null) contextMap.put("transaction_type", transactionType);
+        
+        // Store context as JSON
+        if (!contextMap.isEmpty()) {
+            try {
+                String contextJson = objectMapper.writeValueAsString(contextMap);
+                builder.context(contextJson);
+                logger.debug("Captured context for outbox: {}", contextJson);
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize context to JSON", e);
+            }
+        }
+        
+        // Also set individual fields for backward compatibility
         if (userId != null) {
             builder.createdBy(userId);
         }
-        
-        String tenantId = MDC.get("tenantId");
         if (tenantId != null) {
             builder.tenantId(tenantId);
         }

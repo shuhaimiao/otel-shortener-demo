@@ -1,6 +1,18 @@
 const { trace } = require('@opentelemetry/api');
 const redisClient = require('../redis-client');
 
+// Derive transaction type from HTTP method and path
+const deriveTransactionType = (method, path) => {
+    // Map common endpoints to business transactions
+    if (path.includes('/api/links') && method === 'POST') return 'create-link';
+    if (path.includes('/api/links') && method === 'GET') return 'list-links';
+    if (path.includes('/api/links/') && method === 'GET') return 'get-link';
+    if (path.includes('/api/links/') && method === 'DELETE') return 'delete-link';
+    if (path.includes('/api/analytics') && method === 'GET') return 'get-analytics';
+    if (path.includes('/health') && method === 'GET') return 'health-check';
+    return `${method.toLowerCase()}-${path.split('/')[2] || 'unknown'}`;
+};
+
 // Placeholder token validation - in production would validate with Keycloak
 const validateAndExtractClaims = (token) => {
     // Mock claims for demo
@@ -86,34 +98,47 @@ const establishContext = async (req, res, next) => {
             }
         }
         
-        // Establish standard headers
-        req.headers['x-tenant-id'] = context.tenant_id;
+        // Generate request ID if not present
+        const requestId = req.headers['x-request-id'] || 
+                         `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Derive transaction type from endpoint
+        const transactionType = deriveTransactionType(req.method, req.path);
+        
+        // Establish CORE standard headers (5 headers as per desktop review)
+        req.headers['x-request-id'] = requestId;
         req.headers['x-user-id'] = context.user_id;
+        req.headers['x-tenant-id'] = context.tenant_id;
+        req.headers['x-service-name'] = 'bff';  // Service that established context
+        req.headers['x-transaction-type'] = transactionType;
+        
+        // Extended headers (for reference, not all forwarded downstream)
         req.headers['x-user-email'] = context.user_email || '';
         req.headers['x-user-groups'] = context.user_groups || '';
-        req.headers['x-service-name'] = context.service_name;
-        req.headers['x-transaction-name'] = context.transaction_name;
-        req.headers['x-correlation-id'] = req.headers['x-correlation-id'] || 
-                                          req.headers['x-request-id'] || 
-                                          trace.getActiveSpan()?.spanContext().traceId;
+        req.headers['x-correlation-id'] = req.headers['x-correlation-id'] || requestId;
         
-        // Add context to trace span
+        // Add CORE context to trace span for observability
         if (span) {
             span.setAttributes({
+                'request.id': requestId,
                 'user.id': context.user_id,
-                'user.tenant_id': context.tenant_id,
-                'user.email': context.user_email || '',
-                'user.groups': context.user_groups || '',
-                'service.name': context.service_name,
-                'transaction.name': context.transaction_name
+                'tenant.id': context.tenant_id,
+                'service.name': 'bff',
+                'transaction.type': transactionType
             });
         }
         
-        // Store context in request for later use
-        req.userContext = context;
+        // Store context in request for later use (make immutable)
+        req.userContext = Object.freeze({
+            requestId,
+            userId: context.user_id,
+            tenantId: context.tenant_id,
+            serviceName: 'bff',
+            transactionType
+        });
         
-        // Log context establishment
-        console.log(`Context established - User: ${context.user_id}, Tenant: ${context.tenant_id}, Transaction: ${context.transaction_name}`);
+        // Log context establishment with all CORE fields
+        console.log(`Context established - RequestID: ${requestId}, User: ${context.user_id}, Tenant: ${context.tenant_id}, Transaction: ${transactionType}`);
         
         next();
     } catch (error) {

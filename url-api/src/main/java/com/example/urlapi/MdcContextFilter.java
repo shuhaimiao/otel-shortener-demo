@@ -28,14 +28,12 @@ public class MdcContextFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         
         try {
-            // Extract context headers set by BFF
-            String tenantId = httpRequest.getHeader("X-Tenant-ID");
+            // Extract CORE context headers (5 headers as per desktop review)
+            String requestId = httpRequest.getHeader("X-Request-ID");
             String userId = httpRequest.getHeader("X-User-ID");
-            String userEmail = httpRequest.getHeader("X-User-Email");
-            String userGroups = httpRequest.getHeader("X-User-Groups");
+            String tenantId = httpRequest.getHeader("X-Tenant-ID");
             String serviceName = httpRequest.getHeader("X-Service-Name");
-            String transactionName = httpRequest.getHeader("X-Transaction-Name");
-            String correlationId = httpRequest.getHeader("X-Correlation-ID");
+            String transactionType = httpRequest.getHeader("X-Transaction-Type");
             
             // Extract trace context
             String traceParent = httpRequest.getHeader("traceparent");
@@ -49,25 +47,22 @@ public class MdcContextFilter implements Filter {
                 }
             }
             
-            // Populate MDC
-            if (tenantId != null) MDC.put("tenantId", tenantId);
+            // Populate MDC with CORE context (selective population as per desktop review)
+            if (requestId != null) MDC.put("requestId", requestId);
             if (userId != null) MDC.put("userId", userId);
-            if (userEmail != null) MDC.put("userEmail", userEmail);
-            if (userGroups != null) MDC.put("userGroups", userGroups);
+            if (tenantId != null) MDC.put("tenantId", tenantId);
             if (serviceName != null) MDC.put("originService", serviceName);
-            if (transactionName != null) MDC.put("transaction", transactionName);
-            if (correlationId != null) MDC.put("correlationId", correlationId);
+            if (transactionType != null) MDC.put("transactionType", transactionType);
             if (traceId != null) MDC.put("traceId", traceId);
             
-            // Add request-specific context
-            MDC.put("requestMethod", httpRequest.getMethod());
-            MDC.put("requestPath", httpRequest.getRequestURI());
+            // Add current service context
             MDC.put("service", "url-api");
             
-            logger.info("MDC context established - User: {}, Tenant: {}, Transaction: {}, TraceId: {}", 
+            logger.info("Context received - RequestID: {}, User: {}, Tenant: {}, Transaction: {}, TraceId: {}", 
+                       requestId != null ? requestId : "none",
                        userId != null ? userId : "anonymous", 
                        tenantId != null ? tenantId : "default",
-                       transactionName != null ? transactionName : httpRequest.getMethod() + " " + httpRequest.getRequestURI(),
+                       transactionType != null ? transactionType : "unknown",
                        traceId);
             
             // Continue with the request

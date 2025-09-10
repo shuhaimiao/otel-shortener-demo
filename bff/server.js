@@ -60,15 +60,13 @@ app.post('/api/links', validateUserToken, checkAuthorization('create:links'), as
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${m2mToken}`,
-        // Propagate all context headers
+        // Propagate CORE context headers (5 headers as per desktop review)
+        'X-Request-ID': req.headers['x-request-id'],
         'X-User-ID': req.headers['x-user-id'],
         'X-Tenant-ID': req.headers['x-tenant-id'],
-        'X-User-Email': req.headers['x-user-email'],
-        'X-User-Groups': req.headers['x-user-groups'],
         'X-Service-Name': req.headers['x-service-name'],
-        'X-Transaction-Name': req.headers['x-transaction-name'],
-        'X-Correlation-ID': req.headers['x-correlation-id'],
-        // Propagate trace context
+        'X-Transaction-Type': req.headers['x-transaction-type'],
+        // Propagate W3C trace context
         'traceparent': req.headers['traceparent'],
         'tracestate': req.headers['tracestate']
       },

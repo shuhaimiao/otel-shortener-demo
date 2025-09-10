@@ -62,6 +62,11 @@ public class OutboxEvent {
     @Column(name = "tenant_id")
     private String tenantId;
     
+    // Standard context as JSON (as per desktop review decision)
+    @Column(name = "context", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    private String context;
+    
     // Processing status (for fallback polling if CDC fails)
     @Column(name = "processed_at")
     private Instant processedAt;
