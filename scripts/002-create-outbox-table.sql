@@ -79,4 +79,4 @@ COMMENT ON COLUMN outbox_events.payload IS 'Event payload in JSON format, struct
 
 -- Grant permissions (adjust as needed)
 GRANT SELECT, INSERT, UPDATE ON outbox_events TO otel_user;
-GRANT USAGE ON SEQUENCE outbox_events_id_seq TO otel_user;
+-- No sequence needed since we're using UUID with gen_random_uuid()
