@@ -163,7 +163,7 @@ services:
       - SPRING_KAFKA_CONSUMER_GROUP_ID=analytics-group
       # OTel Vars
       - OTEL_SERVICE_NAME=analytics-api
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_PROPAGATORS=tracecontext,baggage
       - OTEL_INSTRUMENTATION_KAFKA_ENABLED=true
       - OTEL_METRICS_EXPORTER=none
