@@ -1,5 +1,7 @@
 package com.example.urlapi.outbox;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import org.slf4j.Logger;
@@ -18,6 +20,7 @@ import java.util.Map;
 public class OutboxEventService {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxEventService.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     
     @Autowired
     private OutboxEventRepository outboxEventRepository;
@@ -32,11 +35,19 @@ public class OutboxEventService {
                                    String eventType,
                                    Object payload) {
         
+        String jsonPayload;
+        try {
+            jsonPayload = objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize payload to JSON", e);
+            throw new IllegalArgumentException("Could not serialize payload", e);
+        }
+        
         OutboxEvent.OutboxEventBuilder builder = OutboxEvent.builder()
             .aggregateId(aggregateId)
             .aggregateType(aggregateType)
             .eventType(eventType)
-            .payload(payload);
+            .payload(jsonPayload);
         
         // Capture current trace context if available
         Span currentSpan = Span.current();

@@ -35,8 +35,8 @@ public class OutboxEvent {
     private String eventType;
     
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
-    @Convert(converter = JsonPayloadConverter.class)
-    private Object payload;
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    private String payload;
     
     // W3C Trace Context fields for distributed tracing
     @Column(name = "trace_id", length = 32)
