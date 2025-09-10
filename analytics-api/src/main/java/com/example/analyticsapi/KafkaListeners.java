@@ -231,8 +231,34 @@ public class KafkaListeners {
     }
     
     private Context extractTraceContext(Headers headers) {
-        if (propagator == null || headers == null) {
-            logger.debug("No propagator or headers available for trace extraction");
+        if (headers == null) {
+            logger.debug("No headers available for trace extraction");
+            return Context.current();
+        }
+        
+        // First, try to construct W3C traceparent from individual headers (from Debezium)
+        Header traceIdHeader = headers.lastHeader("trace_id");
+        Header spanIdHeader = headers.lastHeader("parent_span_id");
+        Header traceFlagsHeader = headers.lastHeader("trace_flags");
+        
+        if (traceIdHeader != null && spanIdHeader != null) {
+            String traceId = new String(traceIdHeader.value(), StandardCharsets.UTF_8);
+            String spanId = new String(spanIdHeader.value(), StandardCharsets.UTF_8);
+            String traceFlags = traceFlagsHeader != null ? 
+                new String(traceFlagsHeader.value(), StandardCharsets.UTF_8) : "01";
+            
+            // Construct W3C traceparent header
+            String traceparent = String.format("00-%s-%s-%s", traceId, spanId, traceFlags);
+            
+            // Add the constructed traceparent to headers for extraction
+            headers.add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            
+            logger.debug("Constructed traceparent from individual headers: {}", traceparent);
+        }
+        
+        // Now extract using the standard propagator
+        if (propagator == null) {
+            logger.debug("No propagator available for trace extraction");
             return Context.current();
         }
         
