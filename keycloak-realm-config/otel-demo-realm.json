@@ -1,0 +1,178 @@
+{
+  "realm": "otel-demo",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginTheme": "keycloak",
+  "accountTheme": "keycloak",
+  "adminTheme": "keycloak",
+  "emailTheme": "keycloak",
+  "clients": [
+    {
+      "clientId": "frontend-client",
+      "name": "Frontend Application",
+      "enabled": true,
+      "publicClient": true,
+      "clientAuthenticatorType": "client-secret",
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/?"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "role_list",
+        "profile",
+        "roles",
+        "email"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "phone",
+        "offline_access",
+        "microprofile-jwt"
+      ],
+      "access": {
+        "view": true,
+        "configure": true,
+        "manage": true
+      }
+    },
+    {
+      "clientId": "bff-client",
+      "name": "BFF Service",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "aVerySecretBffClientSecret",
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {},
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles"
+      ],
+      "optionalClientScopes": [],
+      "access": {
+        "view": true,
+        "configure": true,
+        "manage": true
+      },
+      "authorizationServicesEnabled": true,
+      "resourceServer": {
+        "name": "BFF API Resources",
+        "allowRemoteResourceManagement": true,
+        "policyEnforcementMode": "ENFORCING",
+        "resources": [
+          {
+            "name": "url-api-resource",
+            "uris": ["/links"],
+            "scopes": [{"name": "internal:access"}]
+          }
+        ],
+        "scopes": [
+          {"name": "internal:access", "displayName": "Internal API Access"}
+        ]
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "email": "testuser@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "frontend-client": ["user"],
+        "bff-client": []
+      },
+      "realmRoles": ["user_role"],
+      "groups": ["/Default Users"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user_role",
+        "description": "Standard user role",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "otel-demo"
+      },
+      {
+        "name": "admin_role",
+        "description": "Administrator role",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "otel-demo"
+      }
+    ],
+    "client": {
+      "bff-client": [
+        {
+          "name": "bff_service_role",
+          "description": "Role for BFF service account to access other internal APIs",
+          "composite": false,
+          "clientRole": true,
+          "containerId": "otel-demo"
+        }
+      ],
+      "frontend-client": [
+         {
+            "name": "user",
+            "description": "User of the frontend",
+            "composite": false,
+            "clientRole": true,
+            "containerId": "otel-demo"
+         }
+      ]
+    }
+  },
+  "clientScopeMappings": {
+    "bff-client": [
+      {
+        "client": "bff-client",
+        "roles": ["bff_service_role"]
+      }
+    ]
+  },
+  "defaultGroups": ["/Default Users"],
+  "groups": [
+    {
+      "name": "Default Users",
+      "path": "/Default Users",
+      "subGroups": [],
+      "realmRoles": ["user_role"],
+      "clientRoles": {
+         "frontend-client": ["user"]
+      }
+    }
+  ],
+  "scopeMappings": [
+     {
+      "clientScope": "email",
+      "roles": ["user_role"]
+    },
+    {
+      "client": "bff-client",
+      "roles": ["bff_service_role"]
+    }
+  ]
+}

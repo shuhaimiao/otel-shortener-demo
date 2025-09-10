@@ -1,0 +1,385 @@
+version: '3.8'
+
+services:
+  # Edge Layer - NGINX
+  nginx:
+    build: ./nginx
+    container_name: otel-nginx
+    ports:
+      - "80:80"
+    networks:
+      - otel-demo-network
+    depends_on:
+      - bff
+      - otel-collector
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Caching Layer - Redis
+  redis:
+    image: redis:7-alpine
+    container_name: otel-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - otel-demo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000" # Next.js default port
+    environment:
+      # Points to the BFF's port *within the Docker network*
+      - NEXT_PUBLIC_BFF_API_URL=http://bff:3001/api
+      # For Next.js to correctly build and run in Docker
+      - NODE_ENV=development # or production if building for prod
+    networks:
+      - otel-demo-network
+    depends_on:
+      - bff
+
+  bff:
+    build: ./bff
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - URL_API_HOSTNAME=url-api
+      - URL_API_PORT=8080
+      - REDIRECT_SERVICE_EXTERNAL_PORT=8081 # Port redirect service is exposed on (for constructing short URLs)
+      - BFF_HOSTNAME=localhost # Hostname clients use to reach BFF (and thus redirect service via BFF constructed URL)
+      - KEYCLOAK_AUTH_SERVER_URL=http://keycloak:8080/auth/
+      - KEYCLOAK_REALM=otel-demo
+      - KEYCLOAK_BFF_CLIENT_ID=bff-client
+      - KEYCLOAK_BFF_CLIENT_SECRET=aVerySecretBffClientSecret # Replace with a real secret
+      # Redis configuration
+      - REDIS_URL=redis://redis:6379
+      # OTel Vars
+      - OTEL_SERVICE_NAME=bff
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - NODE_OPTIONS=--require ./otel-instrumentation.js # Assuming you'll add OTel JS instrumentation
+    networks:
+      - otel-demo-network
+    depends_on:
+      - url-api
+      - keycloak
+      - otel-collector
+      - redis
+
+  url-api:
+    build: ./url-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/url-api:/logs
+    environment:
+      - SERVER_PORT=8080
+      - SPRING_APPLICATION_NAME=url-api
+      # Datasource (PostgreSQL)
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/otel_shortener_db
+      - SPRING_DATASOURCE_USERNAME=otel_user
+      - SPRING_DATASOURCE_PASSWORD=otel_password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update # For demo purposes; use 'validate' or 'none' with Flyway/Liquibase in prod
+      # Kafka
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      # Keycloak (Resource Server)
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/auth/realms/otel-demo
+      # flagd
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      # OTel Vars
+      - OTEL_SERVICE_NAME=url-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - OTEL_INSTRUMENTATION_JDBC_ENABLED=true
+      - OTEL_INSTRUMENTATION_KAFKA_ENABLED=true
+      - OTEL_METRICS_EXPORTER=none # For now, focus on traces
+    networks:
+      - otel-demo-network
+    depends_on:
+      - postgres
+      - kafka
+      - keycloak
+      - flagd
+      - otel-collector
+
+  redirect-service:
+    build: ./redirect-service
+    ports:
+      - "8081:8081" # Exposed to the outside world
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/redirect-service:/logs
+    environment:
+      - SERVER_PORT=8081
+      - SPRING_APPLICATION_NAME=redirect-service
+      # R2DBC Datasource (PostgreSQL)
+      - SPRING_R2DBC_URL=r2dbc:postgresql://postgres:5432/otel_shortener_db
+      - SPRING_R2DBC_USERNAME=otel_user
+      - SPRING_R2DBC_PASSWORD=otel_password
+      # Kafka
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      # OTel Vars
+      - OTEL_SERVICE_NAME=redirect-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - OTEL_INSTRUMENTATION_R2DBC_ENABLED=true
+      - OTEL_INSTRUMENTATION_KAFKA_ENABLED=true
+      - OTEL_METRICS_EXPORTER=none
+    networks:
+      - otel-demo-network
+    depends_on:
+      - postgres
+      - kafka
+      - otel-collector
+
+  analytics-api:
+    build: ./analytics-api
+    ports:
+      - "8082:8082" # For actuator/health checks
+    volumes:
+      - shared-logs:/logs/shared
+      - ./logs/analytics-api:/logs
+    environment:
+      - SERVER_PORT=8082
+      - SPRING_APPLICATION_NAME=analytics-api
+      # Kafka
+      - SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_KAFKA_CONSUMER_GROUP_ID=analytics-group
+      # OTel Vars
+      - OTEL_SERVICE_NAME=analytics-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_PROPAGATORS=tracecontext,baggage
+      - OTEL_INSTRUMENTATION_KAFKA_ENABLED=true
+      - OTEL_METRICS_EXPORTER=none
+      # If it needs to write to Postgres for 'clicks' table
+      # - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/otel_shortener_db
+      # - SPRING_DATASOURCE_USERNAME=otel_user
+      # - SPRING_DATASOURCE_PASSWORD=otel_password
+      # - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+    networks:
+      - otel-demo-network
+    depends_on:
+      - kafka
+      # - postgres # if writing to DB
+      - otel-collector
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=otel_shortener_db
+      - POSTGRES_USER=otel_user
+      - POSTGRES_PASSWORD=otel_password
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=4"
+      - "-c"
+      - "max_wal_senders=4"
+      - "-c"
+      - "wal_keep_size=256MB"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/001-init-schema.sql:/docker-entrypoint-initdb.d/001-init-schema.sql
+      - ./scripts/002-create-outbox-table.sql:/docker-entrypoint-initdb.d/002-create-outbox-table.sql
+    networks:
+      - otel-demo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otel_user -d otel_shortener_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.0 # Using older version that supports Zookeeper mode
+    ports:
+      - "9092:9092" # For internal communication within Docker
+      - "29092:29092" # For access from host if needed (e.g. dev tools)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1 # Required for Confluent images
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1 # Required for Confluent images
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1 # Required for Confluent images
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1 # Required for Confluent images
+    networks:
+      - otel-demo-network
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - otel-demo-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'ruok' | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-connect:
+    image: debezium/connect:2.5
+    container_name: otel-kafka-connect
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /kafka/connect
+      # Additional Java options for debugging
+      KAFKA_OPTS: "-Xms256m -Xmx512m"
+    volumes:
+      - ./debezium/custom-smt/target:/kafka/connect/custom-smt
+    networks:
+      - otel-demo-network
+    depends_on:
+      - kafka
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Automatic Debezium connector registration
+  connector-init:
+    image: curlimages/curl:latest
+    container_name: otel-connector-init
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    volumes:
+      - ./debezium/register-connector-with-context.sh:/register-connector.sh
+    entrypoint: ["/bin/sh", "/register-connector.sh"]
+    networks:
+      - otel-demo-network
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0 # Use a recent version
+    ports:
+      - "8880:8080" # Map Keycloak's 8080 to host's 8880 to avoid conflict if other apps use 8080
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      # DB settings if you want to persist Keycloak data; otherwise, it uses embedded H2
+      # - KC_DB=postgres
+      # - KC_DB_URL_HOST=postgres
+      # - KC_DB_URL_DATABASE=keycloak_db
+      # - KC_DB_USERNAME=keycloak_user
+      # - KC_DB_PASSWORD=keycloak_password
+      # - KC_DB_SCHEMA=public
+      - KC_HTTP_RELATIVE_PATH=/auth # This makes Keycloak accessible at /auth path
+      - KC_FEATURES=token-exchange,scripts # Enable token-exchange and scripts features
+      - KC_HOSTNAME_STRICT=false # For dev, allow flexible hostnames
+      - KC_HOSTNAME_STRICT_HTTPS=false # For dev
+      - KC_HTTP_ENABLED=true
+      - KC_PROXY=edge # If Keycloak is behind a proxy (like Docker's networking)
+    volumes:
+      # - keycloak_data:/opt/keycloak/data # For persisting Keycloak data if not using external DB
+      - ./keycloak-realm-config:/opt/keycloak/data/import # For importing realm configuration
+    command: start-dev --import-realm # Import realm on startup if files are present
+    networks:
+      - otel-demo-network
+    depends_on:
+      # - postgres # If using postgres for Keycloak data
+      - otel-collector
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/auth/health/ready || exit 1"]
+      interval: 30s # Keycloak can take a while to start
+      timeout: 10s
+      retries: 10
+
+  flagd:
+    image: ghcr.io/open-feature/flagd:latest
+    ports:
+      - "8013:8013" # gRPC port
+    volumes:
+      - ./flagd-config:/etc/flagd # Mount config file
+    command: start --uri file:/etc/flagd/flags.json # Or use a different URI for flag source
+    networks:
+      - otel-demo-network
+    healthcheck:
+      test: ["CMD-SHELL", "grpc_health_probe -addr=:8013"] # Assumes grpc_health_probe is in path or use a simpler check
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest # Use contrib for more receivers/exporters
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+      - "13133:13133" # Health check extension
+      - "55679:55679" # zPages extension
+      - "9464:9464" # Prometheus exporter (if used)
+    networks:
+      - otel-demo-network
+    depends_on:
+      - jaeger # Or your preferred tracing backend
+
+  jaeger: # Example tracing backend
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # Collector (for direct agent reporting, not used with otel-collector typically)
+      - "14250:14250" # Collector (gRPC, if agents report directly)
+    networks:
+      - otel-demo-network
+
+volumes:
+  postgres_data:
+  redis-data:
+  shared-logs:
+  # keycloak_data: # Uncomment if using Keycloak volume persistence
+
+networks:
+  otel-demo-network:
+    driver: bridge
