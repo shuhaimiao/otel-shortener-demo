@@ -62,6 +62,25 @@ public class ScheduledJobs {
     }
     
     /**
+     * Establish mock context for scheduled jobs (simulating system user).
+     */
+    private void establishScheduledJobContext(String jobName) {
+        // Generate request ID for the job
+        String requestId = "job-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
+        
+        // Set CORE context headers for scheduled jobs (mock system user)
+        MDC.put("requestId", requestId);
+        MDC.put("userId", "system-scheduler");
+        MDC.put("tenantId", "system");
+        MDC.put("originService", "url-api-scheduler");
+        MDC.put("transactionType", jobName);
+        
+        // Additional job context
+        MDC.put("jobName", jobName);
+        MDC.put("service", "url-api");
+    }
+    
+    /**
      * Scheduled job to check for expired links.
      * Runs every 30 seconds for demo purposes (in production, might be daily).
      */
@@ -82,13 +101,16 @@ public class ScheduledJobs {
                 scope = span.makeCurrent();
             }
             
-            // Set MDC context for the job
-            String jobId = UUID.randomUUID().toString();
-            MDC.put("jobId", jobId);
-            MDC.put("jobName", "check-expired-links");
-            MDC.put("service", "url-api");
+            // Establish context for scheduled job
+            establishScheduledJobContext("check-expired-links");
+            String jobId = MDC.get("requestId"); // Use requestId as jobId
+            
             if (span != null) {
                 MDC.put("traceId", span.getSpanContext().getTraceId());
+                // Add context to span attributes
+                span.setAttribute("user.id", "system-scheduler");
+                span.setAttribute("tenant.id", "system");
+                span.setAttribute("transaction.type", "check-expired-links");
             }
             
             logger.info("Starting scheduled job: check-expired-links");
@@ -170,13 +192,16 @@ public class ScheduledJobs {
                 scope = span.makeCurrent();
             }
             
-            // Set MDC context
-            String jobId = UUID.randomUUID().toString();
-            MDC.put("jobId", jobId);
-            MDC.put("jobName", "generate-analytics");
-            MDC.put("service", "url-api");
+            // Establish context for scheduled job
+            establishScheduledJobContext("generate-analytics");
+            String jobId = MDC.get("requestId"); // Use requestId as jobId
+            
             if (span != null) {
                 MDC.put("traceId", span.getSpanContext().getTraceId());
+                // Add context to span attributes
+                span.setAttribute("user.id", "system-scheduler");
+                span.setAttribute("tenant.id", "system");
+                span.setAttribute("transaction.type", "generate-analytics");
             }
             
             logger.info("Starting scheduled job: generate-analytics");
