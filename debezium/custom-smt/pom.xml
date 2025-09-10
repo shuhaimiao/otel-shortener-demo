@@ -21,6 +21,7 @@
         <kafka.version>3.6.0</kafka.version>
         <slf4j.version>2.0.9</slf4j.version>
         <junit.version>5.10.0</junit.version>
+        <jackson.version>2.15.3</jackson.version>
     </properties>
     
     <dependencies>
@@ -46,6 +47,13 @@
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
             <scope>provided</scope>
+        </dependency>
+        
+        <!-- Jackson for JSON parsing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         
         <!-- Testing -->
