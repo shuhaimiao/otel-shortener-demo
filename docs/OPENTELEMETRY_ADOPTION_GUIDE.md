@@ -43,6 +43,138 @@ The demo showcases trace propagation across:
 4. **Context Preservation**: Ensure trace context survives all boundaries (HTTP, async, CDC)
 5. **Performance First**: Batch exports, sampling strategies, and selective spans
 
+## Architectural Decision: Where to Initiate Traces?
+
+### The Critical Choice: Frontend vs Edge
+
+One of the most important decisions in your OpenTelemetry implementation is **where traces begin**. This choice fundamentally affects the observability you achieve.
+
+#### Option 1: Frontend-Initiated Tracing (Recommended)
+
+**Start traces in the browser/mobile app where user interactions occur.**
+
+**Advantages:**
+- **True End-to-End Visibility**: See the complete user journey from click to response
+- **Client Performance Metrics**: Page load time, rendering, JavaScript execution
+- **Network Visibility**: Latency between user and edge (CDN, DNS, ISP issues)
+- **Error Correlation**: Link client-side errors with backend traces
+- **User Experience Debugging**: Can investigate "it's slow for me" complaints
+- **Real User Monitoring**: Actual user experience, not synthetic
+
+**Disadvantages:**
+- Requires frontend instrumentation effort
+- Slightly increases bundle size (~30-50KB gzipped)
+- Need to handle CORS for trace export
+- Trace IDs visible to users (minor concern)
+
+**Best For:**
+- User-facing applications (B2C, SaaS)
+- Single Page Applications with complex client logic
+- Mobile applications
+- When user experience is critical
+
+#### Option 2: Edge-Initiated Tracing
+
+**Start traces at API Gateway, Load Balancer, or NGINX.**
+
+**Advantages:**
+- Less development effort (no frontend changes)
+- Centralized control
+- Works uniformly for all client types
+- No CORS configuration needed
+- Smaller frontend bundle
+
+**Disadvantages:**
+- **Blind to Client Issues**: Can't see JavaScript errors, rendering problems
+- **Missing Network Layer**: No visibility between user and edge
+- **Incomplete User Journey**: Starts at your infrastructure, not user action
+- **Limited Debugging**: Can't correlate user complaints with traces
+- **No Performance Metrics**: Missing Core Web Vitals, interaction timing
+
+**Acceptable For:**
+- Internal APIs with controlled clients
+- B2B APIs where partners own client instrumentation
+- Legacy systems where frontend changes are prohibitive
+- Simple CRUD applications with thin clients
+
+#### Option 3: Hybrid Approach (Pragmatic)
+
+**Combine both strategies for maximum flexibility:**
+
+```javascript
+// Frontend: Continue or create trace
+const traceHeader = response.headers.get('traceparent');
+if (traceHeader) {
+  // Continue edge-initiated trace
+  continueTrace(traceHeader);
+} else {
+  // Start new trace from frontend
+  startNewTrace();
+}
+```
+
+**Implementation Strategy:**
+1. **Phase 1**: Implement edge tracing for immediate operational visibility
+2. **Phase 2**: Add frontend tracing for critical user journeys
+3. **Phase 3**: Expand frontend coverage based on debugging needs
+
+### Our Recommendation
+
+**Start with frontend tracing whenever possible.** Here's why:
+
+1. **You can't add visibility retroactively**: When a user reports an issue, frontend traces provide crucial context that edge traces miss
+
+2. **The earlier you start tracing, the more you see**: Problems often occur before requests reach your edge
+
+3. **Modern tools make it easy**: Libraries like OpenTelemetry Browser SDK require minimal setup
+
+4. **Performance impact is negligible**: With sampling and batching, overhead is <5ms per request
+
+### Real-World Example
+
+Consider an e-commerce checkout flow:
+
+**With Frontend Tracing:**
+```
+[Browser: User clicks "Checkout"] → 2.3s client processing
+  ├── React render: 450ms
+  ├── Form validation: 200ms
+  ├── API call to edge → 1.65s
+      ├── Network transit: 120ms
+      ├── Edge processing: 50ms
+      └── Backend services: 1.48s
+```
+
+**With Edge-Only Tracing:**
+```
+[Edge: Receives request] → 1.53s
+  ├── Edge processing: 50ms
+  └── Backend services: 1.48s
+```
+
+The edge-only trace misses the 820ms of client-side work and network transit - often where user experience problems hide.
+
+### Decision Framework
+
+Choose **Frontend Tracing** if:
+- User experience is critical to your business
+- You have SPAs or mobile apps with significant client logic
+- You need to debug user-reported performance issues
+- You want to measure Core Web Vitals or interaction metrics
+
+Choose **Edge Tracing** if:
+- You only need operational metrics (uptime, latency)
+- All clients are backend services or controlled APIs
+- Frontend changes require regulatory approval or long cycles
+- You're in Phase 1 of observability adoption (temporary)
+
+Choose **Hybrid** if:
+- You have mixed client types (web, mobile, API)
+- You're incrementally adopting observability
+- Different teams own frontend vs backend
+
+> **Remember**: Observability is about understanding your system from your users' perspective. Frontend tracing aligns with this goal, while edge tracing only shows you what happens inside your infrastructure.
+
 ## Frontend (Browser/React)
 
 ### Installation
