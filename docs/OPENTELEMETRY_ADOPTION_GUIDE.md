@@ -23,7 +23,7 @@ This guide provides production-ready OpenTelemetry implementation patterns extra
 
 ### Reference Implementation
 
-The patterns in this guide are extracted from the **[otel-shortener-demo](https://github.com/shuhaimiao/otel-shortener-demo)**, a microservices-based URL shortener that demonstrates end-to-end distributed tracing. For detailed architecture and system design, see:
+The patterns in this guide are extracted from the **[otel-shortener-demo](https://github.com/smiao-icims/otel-shortener-demo)**, a microservices-based URL shortener that demonstrates end-to-end distributed tracing. For detailed architecture and system design, see:
 
 - **[Architecture Documentation](./ARCHITECTURE.md)** - Comprehensive system design and service descriptions
 - **[Quick Start Guide](../QUICK_START.md)** - Get the demo running in 5 minutes

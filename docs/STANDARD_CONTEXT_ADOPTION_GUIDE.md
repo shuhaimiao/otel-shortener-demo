@@ -27,7 +27,7 @@ This guide provides production-ready patterns for implementing standard business
 
 ### Reference Implementation
 
-The patterns in this guide are extracted from the **[otel-shortener-demo](https://github.com/shuhaimiao/otel-shortener-demo)**, which demonstrates complete context propagation across:
+The patterns in this guide are extracted from the **[otel-shortener-demo](https://github.com/smiao-icims/otel-shortener-demo)**, which demonstrates complete context propagation across:
 - Frontend → BFF → Backend Services → Kafka → Analytics
 - Synchronous HTTP with standard headers (X-User-ID, X-Tenant-ID, etc.)
 - Asynchronous boundaries via Kafka with context preservation
