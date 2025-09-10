@@ -1,5 +1,7 @@
 package com.example.analyticsapi;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -22,11 +24,13 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.Map;
 
 @Component
 public class KafkaListeners {
     
     private static final Logger logger = LoggerFactory.getLogger(KafkaListeners.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     
     private static final String LINK_EVENTS_TOPIC = "link-events";
     private static final String ANALYTICS_EVENTS_TOPIC = "analytics-events";
@@ -55,6 +59,9 @@ public class KafkaListeners {
         Scope consumerScope = null;
         
         try {
+            // Extract standard context from message if available
+            extractStandardContext(record.value());
+            
             if (tracer != null) {
                 // Check if we have a valid extracted context
                 boolean hasExtractedTrace = extractedContext != Context.current() && 
@@ -89,12 +96,13 @@ public class KafkaListeners {
                 
                 consumerScope = consumerSpan.makeCurrent();
                 
-                // Set MDC with trace ID
-                if (consumerSpan.getSpanContext().isValid()) {
+                // Set MDC with trace ID (don't override if already set)
+                if (consumerSpan.getSpanContext().isValid() && MDC.get("traceId") == null) {
                     MDC.put("traceId", consumerSpan.getSpanContext().getTraceId());
                 }
             }
             
+            // Ensure service and topic are always set
             MDC.put("service", "analytics-api");
             MDC.put("topic", LINK_EVENTS_TOPIC);
             
@@ -127,6 +135,8 @@ public class KafkaListeners {
         Scope consumerScope = null;
         
         try {
+            // Extract standard context from message if available
+            extractStandardContext(record.value());
             if (tracer != null) {
                 // Check if we have a valid extracted context
                 boolean hasExtractedTrace = extractedContext != Context.current() && 
@@ -160,12 +170,13 @@ public class KafkaListeners {
                 
                 consumerScope = consumerSpan.makeCurrent();
                 
-                // Set MDC with trace ID
-                if (consumerSpan.getSpanContext().isValid()) {
+                // Set MDC with trace ID (don't override if already set)
+                if (consumerSpan.getSpanContext().isValid() && MDC.get("traceId") == null) {
                     MDC.put("traceId", consumerSpan.getSpanContext().getTraceId());
                 }
             }
             
+            // Ensure service and topic are always set
             MDC.put("service", "analytics-api");
             MDC.put("topic", ANALYTICS_EVENTS_TOPIC);
             
@@ -198,6 +209,8 @@ public class KafkaListeners {
         Scope scope = null;
         
         try {
+            // Extract standard context from message if available
+            extractStandardContext(record.value());
             if (tracer != null) {
                 span = tracer.spanBuilder("kafka.consume.url-clicks")
                     .setParent(extractedContext)
@@ -209,12 +222,13 @@ public class KafkaListeners {
                     .startSpan();
                 scope = span.makeCurrent();
                 
-                // Set MDC with trace ID
-                if (span.getSpanContext().isValid()) {
+                // Set MDC with trace ID (don't override if already set)
+                if (span.getSpanContext().isValid() && MDC.get("traceId") == null) {
                     MDC.put("traceId", span.getSpanContext().getTraceId());
                 }
             }
             
+            // Ensure service and topic are always set
             MDC.put("service", "analytics-api");
             MDC.put("topic", URL_CLICKS_TOPIC);
             
@@ -284,6 +298,63 @@ public class KafkaListeners {
         }
         
         return extracted;
+    }
+    
+    /**
+     * Extract standard context from message envelope and populate MDC.
+     * For messages from Debezium, context is in the 'context' field.
+     */
+    private void extractStandardContext(String message) {
+        if (message == null || message.isEmpty()) {
+            return;
+        }
+        
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            
+            // Check if message has context field (from Debezium outbox)
+            if (root.has("context")) {
+                String contextJson = root.get("context").asText();
+                if (contextJson != null && !contextJson.isEmpty()) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> contextMap = objectMapper.readValue(contextJson, Map.class);
+                        
+                        // Populate MDC with standard context fields
+                        if (contextMap.containsKey("request_id")) {
+                            MDC.put("requestId", String.valueOf(contextMap.get("request_id")));
+                        }
+                        if (contextMap.containsKey("user_id")) {
+                            MDC.put("userId", String.valueOf(contextMap.get("user_id")));
+                        }
+                        if (contextMap.containsKey("tenant_id")) {
+                            MDC.put("tenantId", String.valueOf(contextMap.get("tenant_id")));
+                        }
+                        if (contextMap.containsKey("service_name")) {
+                            MDC.put("originService", String.valueOf(contextMap.get("service_name")));
+                        }
+                        if (contextMap.containsKey("transaction_type")) {
+                            MDC.put("transactionType", String.valueOf(contextMap.get("transaction_type")));
+                        }
+                        
+                        logger.debug("Extracted standard context from message: {}", contextMap);
+                    } catch (Exception e) {
+                        logger.debug("Failed to parse context JSON: {}", e.getMessage());
+                    }
+                }
+            }
+            
+            // Also check for individual trace fields (from Debezium)
+            if (root.has("trace_id")) {
+                String traceId = root.get("trace_id").asText();
+                if (traceId != null && !traceId.isEmpty() && MDC.get("traceId") == null) {
+                    MDC.put("traceId", traceId);
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.debug("Failed to extract standard context from message: {}", e.getMessage());
+        }
     }
     
     private void processLinkEvent(String message) {
